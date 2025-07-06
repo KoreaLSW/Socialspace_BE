@@ -9,19 +9,17 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true
   },
   "include": [
     "*.ts",
-    "utils/**/*",
-    "routes/**/*",
-    "middleware/**/*",
-    "controllers/**/*",
-    "config/**/*"
+    "utils/**/*.ts",
+    "routes/**/*.ts",
+    "middleware/**/*.ts",
+    "controllers/**/*.ts",
+    "config/**/*.ts",
+    "models/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
