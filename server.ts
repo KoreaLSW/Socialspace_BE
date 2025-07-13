@@ -20,7 +20,13 @@ app.use(
     ],
     credentials: true, // 쿠키 포함 허용
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "Cookie"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-CSRF-Token",
+      "Cookie",
+      "x-session-data",
+    ],
     exposedHeaders: ["Set-Cookie"], // 쿠키 설정 헤더 노출
     // 🔧 프리플라이트 응답 캐시 시간 추가
     optionsSuccessStatus: 200,

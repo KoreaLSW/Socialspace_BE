@@ -5,6 +5,7 @@ import {
   testKoreanTime,
 } from "../controllers/healthController";
 import authRoutes from "./auth";
+import postsRoutes from "./posts";
 
 const router = express.Router();
 
@@ -29,5 +30,8 @@ router.get("/api/test-time", testKoreanTime);
 
 // 인증 라우트
 router.use("/auth", authRoutes);
+
+// 게시글 라우트
+router.use("/posts", postsRoutes);
 
 export default router;
