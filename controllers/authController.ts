@@ -30,8 +30,7 @@ export const googleLogin = async (req: Request, res: Response) => {
       });
       return;
     }
-
-    log("INFO", "NextAuth에서 Google 로그인 요청", { googleId, email, name });
+    log("INFO", "NextAuth에서 Google 로그인 요청");
 
     // 기존 사용자 확인 (Google ID 또는 이메일로)
     let user = await UserModel.findById(googleId);
@@ -50,7 +49,7 @@ export const googleLogin = async (req: Request, res: Response) => {
 
         if (updatedUser) {
           user = updatedUser;
-          log("INFO", "기존 사용자 정보 업데이트 완료", { userId: user.id });
+          log("INFO", "기존 사용자 정보 업데이트 완료");
         }
       }
     }
@@ -66,7 +65,7 @@ export const googleLogin = async (req: Request, res: Response) => {
 
         if (updatedUser) {
           user = updatedUser;
-          log("INFO", "기존 사용자 로그인", { userId: user.id });
+          log("INFO", "기존 사용자 로그인");
         }
       }
     } else {
@@ -80,7 +79,7 @@ export const googleLogin = async (req: Request, res: Response) => {
       };
 
       user = await UserModel.create(newUserData);
-      log("INFO", "새 사용자 등록", { userId: user.id });
+      log("INFO", "새 사용자 등록");
     }
 
     // 사용자 정보만 반환 (NextAuth가 세션 관리)
@@ -166,7 +165,7 @@ export const updateProfile = async (req: Request, res: Response) => {
       return;
     }
 
-    log("INFO", "사용자 프로필 업데이트 완료", { userId, updateData });
+    log("INFO", "사용자 프로필 업데이트 완료");
 
     res.json({
       success: true,
@@ -188,7 +187,7 @@ export const updateProfile = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    log("ERROR", "프로필 업데이트 실패", error);
+    log("ERROR", "프로필 업데이트 실패");
     res.status(500).json({
       success: false,
       message: "프로필 업데이트 중 오류가 발생했습니다",
