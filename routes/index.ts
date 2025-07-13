@@ -1,5 +1,9 @@
 import express from "express";
-import { getHealth, testDatabase } from "../controllers/healthController";
+import {
+  getHealth,
+  testDatabase,
+  testKoreanTime,
+} from "../controllers/healthController";
 import authRoutes from "./auth";
 
 const router = express.Router();
@@ -19,6 +23,9 @@ router.get("/health", getHealth);
 
 // 데이터베이스 테스트 라우트
 router.get("/api/test-db", testDatabase);
+
+// 한국시간 테스트 라우트
+router.get("/api/test-time", testKoreanTime);
 
 // 인증 라우트
 router.use("/auth", authRoutes);

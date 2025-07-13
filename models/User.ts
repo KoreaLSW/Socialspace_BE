@@ -1,5 +1,6 @@
 import { pool } from "../config/database";
 import { log } from "../utils/logger";
+import { getKoreanTime } from "../utils/time";
 
 // NextAuth에서 전송하는 Google 사용자 정보
 export interface NextAuthGoogleUser {
@@ -103,9 +104,11 @@ export class UserModel {
         counter++;
       }
 
+      const koreanTime = getKoreanTime();
+
       const result = await client.query(
-        `INSERT INTO users (id, email, username, nickname, bio, profile_image) 
-         VALUES ($1, $2, $3, $4, $5, $6) 
+        `INSERT INTO users (id, email, username, nickname, bio, profile_image, created_at, updated_at) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
          RETURNING *`,
         [
           userData.googleId, // Google ID를 직접 id로 사용
@@ -114,15 +117,18 @@ export class UserModel {
           userData.name, // nickname으로 사용
           "", // bio 기본값으로 빈 문자열
           userData.picture || null,
+          koreanTime, // 한국시간으로 created_at 설정
+          koreanTime, // 한국시간으로 updated_at 설정
         ]
       );
       client.release();
 
-      log("INFO", "새 사용자 생성", {
+      log("INFO", "새 사용자 생성 (한국시간)", {
         id: userData.googleId,
         email: userData.email,
         username: username,
         nickname: userData.name,
+        createdAt: koreanTime,
       });
 
       return this.mapRowToUser(result.rows[0]);
@@ -166,6 +172,11 @@ export class UserModel {
         return this.findById(id);
       }
 
+      // updated_at을 한국시간으로 설정
+      const koreanTime = getKoreanTime();
+      setParts.push(`updated_at = $${paramIndex++}`);
+      values.push(koreanTime);
+
       values.push(id);
       const result = await client.query(
         `UPDATE users SET ${setParts.join(
@@ -178,6 +189,12 @@ export class UserModel {
       if (result.rows.length === 0) {
         return null;
       }
+
+      log("INFO", "사용자 정보 업데이트 (한국시간)", {
+        id: id,
+        updatedAt: koreanTime,
+        updates: updates,
+      });
 
       return this.mapRowToUser(result.rows[0]);
     } catch (error) {

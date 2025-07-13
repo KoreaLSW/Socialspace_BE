@@ -1,72 +1,86 @@
 import { Request, Response } from "express";
-import { pool } from "../config/database";
+import { PostgreSQLConnection } from "../config/database";
+import { log } from "../utils/logger";
+import {
+  getKoreanTimezoneInfo,
+  getKoreanTime,
+  getKoreanTimeFormatted,
+} from "../utils/time";
 
+// 간단한 헬스 체크 엔드포인트
 export const getHealth = async (req: Request, res: Response) => {
   try {
-    const client = await pool.connect();
-    await client.query("SELECT 1");
-    client.release();
-
-    res.json({
-      success: true,
+    const health = {
       status: "healthy",
-      database: "connected",
-      uptime: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
-    });
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || "development",
+      version: "1.0.0",
+    };
+
+    res.json(health);
   } catch (error) {
-    res.status(503).json({
-      success: false,
+    log("ERROR", "Health check failed", error);
+    res.status(500).json({
       status: "unhealthy",
-      database: "disconnected",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// 데이터베이스 연결 테스트
+export const testDatabase = async (req: Request, res: Response) => {
+  try {
+    const isConnected = await PostgreSQLConnection();
+
+    if (isConnected) {
+      res.json({
+        status: "success",
+        message: "Database connection successful",
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      res.status(500).json({
+        status: "error",
+        message: "Database connection failed",
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    log("ERROR", "Database test failed", error);
+    res.status(500).json({
+      status: "error",
+      message: "Database test failed",
       error: error instanceof Error ? error.message : "Unknown error",
       timestamp: new Date().toISOString(),
     });
   }
 };
 
-export const testDatabase = async (req: Request, res: Response) => {
+// 한국시간 설정 확인 테스트
+export const testKoreanTime = async (req: Request, res: Response) => {
   try {
-    const client = await pool.connect();
-
-    const tableCheck = await client.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = 'users'
-      ) as exists;
-    `);
-
-    const dbInfo = await client.query(`
-      SELECT 
-        current_database() as database_name,
-        current_user as current_user,
-        version() as version
-    `);
-
-    client.release();
+    const timezoneInfo = getKoreanTimezoneInfo();
 
     res.json({
-      success: true,
+      status: "success",
+      message: "한국시간 설정 확인",
       data: {
-        database: {
-          name: dbInfo.rows[0].database_name,
-          user: dbInfo.rows[0].current_user,
-          version: dbInfo.rows[0].version.split(" ")[0],
-        },
-        tables: {
-          usersExists: tableCheck.rows[0].exists,
-        },
+        ...timezoneInfo,
+        dbFormatTime: getKoreanTime(),
+        displayTime: getKoreanTimeFormatted(),
+        jsTime: new Date().toISOString(),
+        jsKoreanTime: new Date().toLocaleString("ko-KR", {
+          timeZone: "Asia/Seoul",
+        }),
       },
-      message: "Database test completed successfully",
-      timestamp: new Date().toISOString(),
     });
   } catch (error) {
+    log("ERROR", "Korean time test failed", error);
     res.status(500).json({
-      success: false,
-      error: "Database query failed",
-      details: error instanceof Error ? error.message : "Unknown error",
-      timestamp: new Date().toISOString(),
+      status: "error",
+      message: "Korean time test failed",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };

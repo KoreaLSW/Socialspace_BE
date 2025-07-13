@@ -3,6 +3,7 @@ dotenv.config();
 
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { pool, PostgreSQLConnection } from "./config/database";
 import { errorHandler } from "./middleware/errorHandler";
 import { log } from "./utils/logger";
@@ -16,18 +17,20 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000", // NextJS 개발 서버
-      "http://localhost:8080", // 테스트 HTTP 서버
-      "file://", // 로컬 파일에서 테스트
-      /^http:\/\/localhost:\d+$/, // 모든 localhost 포트
     ],
     credentials: true, // 쿠키 포함 허용
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "Cookie"],
+    exposedHeaders: ["Set-Cookie"], // 쿠키 설정 헤더 노출
+    // 🔧 프리플라이트 응답 캐시 시간 추가
+    optionsSuccessStatus: 200,
+    preflightContinue: false,
   })
 );
 
 // 미들웨어
 app.use(express.json());
+app.use(cookieParser()); // 🔧 쿠키 파서 미들웨어 추가
 
 // 라우트 설정
 app.use("/", routes);
