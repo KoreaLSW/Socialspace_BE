@@ -47,6 +47,7 @@ export class PostsController {
         allow_comments: allow_comments !== undefined ? allow_comments : true,
       });
 
+      console.log("🔍🔍🔍 이미지 저장 시작:", images);
       // 이미지 저장
       if (images && Array.isArray(images) && images.length > 0) {
         await PostImageModel.createMultiple(newPost.id, images);

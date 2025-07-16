@@ -48,7 +48,6 @@ export class PostImageModel {
     try {
       const client = await pool.connect();
       const images: PostImage[] = [];
-
       for (let i = 0; i < imageUrls.length; i++) {
         const result = await client.query(
           `INSERT INTO post_images (post_id, image_url, order_index) 

@@ -40,7 +40,7 @@ export const googleLogin = async (req: Request, res: Response) => {
     });
 
     // 기존 사용자 확인
-    let user = await UserModel.findById(googleId);
+    let user = await UserModel.findByEmail(email);
 
     if (user) {
       // 기존 사용자 정보 업데이트

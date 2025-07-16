@@ -42,6 +42,7 @@ export class ImageController {
     res: Response
   ): Promise<void> {
     try {
+      console.log("🔍 단일 이미지 업로드 시작");
       console.log("🔍 이미지 업로드 시작:", {
         hasUser: !!req.user,
         userId: req.user?.id,
@@ -99,6 +100,7 @@ export class ImageController {
     res: Response
   ): Promise<void> {
     try {
+      console.log("🔍 다중 이미지 업로드 시작");
       const userId = req.user?.id;
       if (!userId) {
         res.status(401).json({ error: "로그인이 필요합니다." });
