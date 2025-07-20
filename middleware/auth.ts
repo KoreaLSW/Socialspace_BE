@@ -37,9 +37,13 @@ export const authenticateToken = async (
 
     let sessionInfo;
     try {
-      sessionInfo = JSON.parse(sessionData as string);
+      // Base64 디코딩 후 JSON 파싱 (한글 문제 해결)
+      const decodedSessionData = decodeURIComponent(
+        Buffer.from(sessionData as string, "base64").toString("utf8")
+      );
+      sessionInfo = JSON.parse(decodedSessionData);
     } catch (parseError) {
-      console.error("🔴 세션 정보 파싱 실패:", parseError);
+      console.error("🔴 세션 정보 디코딩/파싱 실패:", parseError);
       res.status(400).json({ error: "세션 정보 형식이 잘못되었습니다." });
       return;
     }
@@ -99,9 +103,13 @@ export const optionalAuth = async (
 
     let sessionInfo;
     try {
-      sessionInfo = JSON.parse(sessionData as string);
+      // Base64 디코딩 후 JSON 파싱 (한글 문제 해결)
+      const decodedSessionData = decodeURIComponent(
+        Buffer.from(sessionData as string, "base64").toString("utf8")
+      );
+      sessionInfo = JSON.parse(decodedSessionData);
     } catch (parseError) {
-      log("WARN", "세션 정보 파싱 실패 (선택적 인증)", parseError);
+      log("WARN", "세션 정보 디코딩/파싱 실패 (선택적 인증)", parseError);
       next();
       return;
     }
