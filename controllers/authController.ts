@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { UserModel, User, NextAuthGoogleUser } from "../models/User";
 import { log } from "../utils/logger";
 import { AuthenticatedRequest } from "../middleware/auth";
+import { pool } from "../config/database";
 
 // 이메일에서 고유한 사용자명 생성
 const generateUniqueUsername = async (email: string): Promise<string> => {
@@ -16,6 +17,54 @@ const generateUniqueUsername = async (email: string): Promise<string> => {
   }
 
   return username;
+};
+
+// 팔로워 수 조회
+const getFollowersCount = async (userId: string): Promise<number> => {
+  try {
+    const client = await pool.connect();
+    const result = await client.query(
+      "SELECT COUNT(*) as count FROM follows WHERE following_id = $1 AND is_accepted = true",
+      [userId]
+    );
+    client.release();
+    return parseInt(result.rows[0].count);
+  } catch (error) {
+    log("ERROR", "팔로워 수 조회 실패", error);
+    return 0;
+  }
+};
+
+// 팔로잉 수 조회
+const getFollowingCount = async (userId: string): Promise<number> => {
+  try {
+    const client = await pool.connect();
+    const result = await client.query(
+      "SELECT COUNT(*) as count FROM follows WHERE follower_id = $1 AND is_accepted = true",
+      [userId]
+    );
+    client.release();
+    return parseInt(result.rows[0].count);
+  } catch (error) {
+    log("ERROR", "팔로잉 수 조회 실패", error);
+    return 0;
+  }
+};
+
+// 게시물 수 조회
+const getPostsCount = async (userId: string): Promise<number> => {
+  try {
+    const client = await pool.connect();
+    const result = await client.query(
+      "SELECT COUNT(*) as count FROM posts WHERE user_id = $1",
+      [userId]
+    );
+    client.release();
+    return parseInt(result.rows[0].count);
+  } catch (error) {
+    log("ERROR", "게시물 수 조회 실패", error);
+    return 0;
+  }
 };
 
 // Google OAuth 로그인 처리 (사용자 정보 생성/업데이트)
@@ -122,23 +171,29 @@ export const getCurrentUser = async (
       return;
     }
 
+    // 팔로워/팔로잉/게시물 수 조회
+    const followersCount = await getFollowersCount(userId);
+    const followingCount = await getFollowingCount(userId);
+    const postsCount = await getPostsCount(userId);
+
     res.json({
       success: true,
       message: "사용자 정보 조회 성공",
       data: {
-        user: {
-          id: user.id,
-          email: user.email,
-          username: user.username,
-          nickname: user.nickname,
-          bio: user.bio,
-          profileImage: user.profileImage,
-          visibility: user.visibility,
-          role: user.role,
-          emailVerified: user.emailVerified,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-        },
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        nickname: user.nickname,
+        bio: user.bio,
+        profileImage: user.profileImage,
+        visibility: user.visibility,
+        role: user.role,
+        emailVerified: user.emailVerified,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        followersCount,
+        followingCount,
+        postsCount,
       },
     });
   } catch (error) {

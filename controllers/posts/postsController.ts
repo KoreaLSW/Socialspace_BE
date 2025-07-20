@@ -85,20 +85,22 @@ export class PostsController {
 
       const { posts, total } = await PostModel.findAll(page, limit, visibility);
 
-      // 각 게시글의 이미지 정보 가져오기
-      const postsWithImages = await Promise.all(
+      // 각 게시글의 이미지와 해시태그 정보 가져오기
+      const postsWithDetails = await Promise.all(
         posts.map(async (post) => {
           const images = await PostImageModel.findByPostId(post.id);
+          const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
           return {
             ...post,
             images,
+            hashtags,
           };
         })
       );
 
       res.json({
         success: true,
-        data: postsWithImages,
+        data: postsWithDetails,
         pagination: {
           page,
           limit,
@@ -126,14 +128,16 @@ export class PostsController {
         return;
       }
 
-      // 이미지 정보 가져오기
+      // 이미지와 해시태그 정보 가져오기
       const images = await PostImageModel.findByPostId(post.id);
+      const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
 
       res.json({
         success: true,
         data: {
           ...post,
           images,
+          hashtags,
         },
         message: "게시글을 성공적으로 조회했습니다.",
       });
@@ -276,20 +280,22 @@ export class PostsController {
         limit
       );
 
-      // 각 게시글의 이미지 정보 가져오기
-      const postsWithImages = await Promise.all(
+      // 각 게시글의 이미지와 해시태그 정보 가져오기
+      const postsWithDetails = await Promise.all(
         posts.map(async (post) => {
           const images = await PostImageModel.findByPostId(post.id);
+          const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
           return {
             ...post,
             images,
+            hashtags,
           };
         })
       );
 
       res.json({
         success: true,
-        data: postsWithImages,
+        data: postsWithDetails,
         pagination: {
           page,
           limit,
@@ -303,6 +309,57 @@ export class PostsController {
       res
         .status(500)
         .json({ error: "사용자 게시글 조회 중 오류가 발생했습니다." });
+    }
+  }
+
+  // 내 게시글 조회
+  static async getMyPosts(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ error: "로그인이 필요합니다." });
+        return;
+      }
+
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+
+      const { posts, total } = await PostModel.findByUserId(
+        userId,
+        page,
+        limit
+      );
+
+      // 각 게시글의 이미지와 해시태그 정보 가져오기
+      const postsWithDetails = await Promise.all(
+        posts.map(async (post) => {
+          const images = await PostImageModel.findByPostId(post.id);
+          const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
+          return {
+            ...post,
+            images,
+            hashtags,
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        data: postsWithDetails,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+        message: "내 게시글 목록을 성공적으로 조회했습니다.",
+      });
+    } catch (error) {
+      log("ERROR", "내 게시글 조회 실패", error);
+      res.status(500).json({ error: "내 게시글 조회 중 오류가 발생했습니다." });
     }
   }
 
@@ -326,20 +383,22 @@ export class PostsController {
         limit
       );
 
-      // 각 게시글의 이미지 정보 가져오기
-      const postsWithImages = await Promise.all(
+      // 각 게시글의 이미지와 해시태그 정보 가져오기
+      const postsWithDetails = await Promise.all(
         posts.map(async (post) => {
           const images = await PostImageModel.findByPostId(post.id);
+          const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
           return {
             ...post,
             images,
+            hashtags,
           };
         })
       );
 
       res.json({
         success: true,
-        data: postsWithImages,
+        data: postsWithDetails,
         pagination: {
           page,
           limit,

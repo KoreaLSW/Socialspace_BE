@@ -32,6 +32,9 @@ router.delete(
 // 게시글 생성 (NextAuth 세션 인증 필요)
 router.post("/", authenticateToken, PostsController.createPost);
 
+// 내 게시글 조회 (인증 필요)
+router.get("/my", authenticateToken, PostsController.getMyPosts);
+
 // 게시글 목록 조회 (선택적 인증 - 로그인한 사용자의 경우 추가 정보 제공)
 router.get("/", optionalAuth, PostsController.getPosts);
 
