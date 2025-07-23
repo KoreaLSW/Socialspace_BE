@@ -14,6 +14,10 @@ export interface Post {
   allow_comments: boolean;
   created_at: Date;
   updated_at: Date;
+  author?: {
+    nickname: string;
+    profileImage?: string;
+  };
 }
 
 export interface CreatePostData {
@@ -123,47 +127,60 @@ export class PostModel {
     }
   }
 
-  // 전체 게시글 목록 조회 (페이지네이션)
+  // 전체 게시글 목록 조회 (공개범위/팔로우/비공개 반영)
   static async findAll(
     page: number = 1,
     limit: number = 10,
-    visibility?: string
+    userId?: string // 로그인 유저 ID(없으면 public만)
   ): Promise<{ posts: Post[]; total: number }> {
     try {
       const client = await pool.connect();
       const offset = (page - 1) * limit;
 
-      let countQuery = "SELECT COUNT(*) FROM posts";
-      let selectQuery = "SELECT * FROM posts";
-      const queryParams: any[] = [];
+      let whereClause = "";
+      let countWhereClause = "";
+      let params: any[] = [];
 
-      if (visibility) {
-        countQuery += " WHERE visibility = $1";
-        selectQuery += " WHERE visibility = $1";
-        queryParams.push(visibility);
+      if (userId) {
+        whereClause = `
+          WHERE (
+            p.visibility = 'public'
+            OR (p.visibility = 'followers' AND (
+              p.user_id = $1
+              OR EXISTS (
+                SELECT 1 FROM follows
+                WHERE follower_id = $1
+                  AND following_id = p.user_id
+                  AND is_accepted = true
+              )
+            ))
+            OR (p.visibility = 'private' AND p.user_id = $1)
+          )
+        `;
+        countWhereClause = whereClause;
+        params.push(userId);
+      } else {
+        whereClause = "WHERE p.visibility = 'public'";
+        countWhereClause = whereClause;
       }
 
-      selectQuery +=
-        " ORDER BY created_at DESC LIMIT $" +
-        (queryParams.length + 1) +
-        " OFFSET $" +
-        (queryParams.length + 2);
-      queryParams.push(limit, offset);
+      const countQuery = `SELECT COUNT(*) FROM posts p ${countWhereClause}`;
+      const selectQuery = `SELECT p.*, u.nickname, u.profile_image FROM posts p JOIN users u ON p.user_id = u.id ${whereClause} ORDER BY p.created_at DESC LIMIT $${
+        params.length + 1
+      } OFFSET $${params.length + 2}`;
+      params.push(limit, offset);
 
-      // 전체 개수 조회
       const countResult = await client.query(
         countQuery,
-        visibility ? [visibility] : []
+        userId ? [userId] : []
       );
       const total = parseInt(countResult.rows[0].count);
 
-      // 게시글 조회
-      const result = await client.query(selectQuery, queryParams);
+      const result = await client.query(selectQuery, params);
 
       client.release();
 
       const posts = result.rows.map((row) => this.mapRowToPost(row));
-
       return { posts, total };
     } catch (error) {
       log("ERROR", "게시글 목록 조회 실패", error);
@@ -307,6 +324,10 @@ export class PostModel {
       allow_comments: row.allow_comments,
       created_at: row.created_at,
       updated_at: row.updated_at,
+      author: {
+        nickname: row.nickname,
+        profileImage: row.profile_image,
+      },
     };
   }
 }

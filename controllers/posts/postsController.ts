@@ -81,20 +81,24 @@ export class PostsController {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
-      const visibility = req.query.visibility as string;
+      console.log("page", page);
+      console.log("limit", limit);
+      // 로그인 유저 정보 활용
+      const userId = (req as any).user?.id;
 
-      const { posts, total } = await PostModel.findAll(page, limit, visibility);
+      const { posts, total } = await PostModel.findAll(page, limit, userId);
 
-      // 각 게시글의 이미지와 해시태그 정보 가져오기
+      // 각 게시글의 이미지와 해시태그 정보 가져오기 + 조회수 비공개 처리
       const postsWithDetails = await Promise.all(
         posts.map(async (post) => {
           const images = await PostImageModel.findByPostId(post.id);
           const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
-          return {
-            ...post,
-            images,
-            hashtags,
-          };
+          // 조회수 비공개 처리
+          let filteredPost: any = { ...post, images, hashtags };
+          if (post.hide_views) {
+            delete filteredPost.views;
+          }
+          return filteredPost;
         })
       );
 
@@ -132,13 +136,15 @@ export class PostsController {
       const images = await PostImageModel.findByPostId(post.id);
       const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
 
+      // 조회수 비공개 처리
+      let filteredPost: any = { ...post, images, hashtags };
+      if (post.hide_views) {
+        delete filteredPost.views;
+      }
+
       res.json({
         success: true,
-        data: {
-          ...post,
-          images,
-          hashtags,
-        },
+        data: filteredPost,
         message: "게시글을 성공적으로 조회했습니다.",
       });
     } catch (error) {

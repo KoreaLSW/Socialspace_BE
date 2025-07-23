@@ -4,6 +4,8 @@ import {
   getCurrentUser,
   updateProfile,
   logout,
+  getRecommendedUsers,
+  getUserProfileByUsername,
 } from "../controllers/authController";
 import { authenticateToken } from "../middleware/auth";
 
@@ -18,10 +20,16 @@ router.get("/me", authenticateToken, getCurrentUser);
 // 내 프로필 정보 조회 (팔로워/팔로잉/게시물 수 포함)
 router.get("/profile", authenticateToken, getCurrentUser);
 
+// username으로 사용자 프로필 조회 (공개 정보)
+router.get("/profile/username/:username", getUserProfileByUsername);
+
 // 사용자 프로필 업데이트
 router.put("/profile", authenticateToken, updateProfile);
 
 // 로그아웃 처리
 router.post("/logout", authenticateToken, logout);
+
+// 추천 유저 조회
+router.get("/recommended-users", authenticateToken, getRecommendedUsers);
 
 export default router;

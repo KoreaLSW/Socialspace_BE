@@ -292,3 +292,85 @@ export const logout = async (req: AuthenticatedRequest, res: Response) => {
     });
   }
 };
+
+// 추천 유저(팔로우하지 않은 인기 유저 + 친구의 친구)
+export const getRecommendedUsers = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const userId = req.user?.id;
+    console.log("getRecommendedUsers", userId);
+    if (!userId) {
+      res.status(401).json({ success: false, message: "로그인이 필요합니다." });
+      return;
+    }
+    const limit = parseInt(req.query.limit as string) || 10;
+    const users = await UserModel.getSuggestedUsers(userId, limit);
+    res.json({ success: true, data: users });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "추천 유저 조회 중 오류",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+};
+
+// username으로 사용자 프로필 조회
+export const getUserProfileByUsername = async (req: Request, res: Response) => {
+  try {
+    const { username } = req.params;
+
+    if (!username) {
+      res.status(400).json({
+        success: false,
+        message: "사용자명이 필요합니다",
+      });
+      return;
+    }
+
+    // 데이터베이스에서 사용자 정보 조회
+    const user = await UserModel.findByUsername(username);
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: "사용자를 찾을 수 없습니다",
+      });
+      return;
+    }
+
+    // 팔로워/팔로잉/게시물 수 조회
+    const followersCount = await getFollowersCount(user.id);
+    const followingCount = await getFollowingCount(user.id);
+    const postsCount = await getPostsCount(user.id);
+
+    res.json({
+      success: true,
+      message: "사용자 프로필 조회 성공",
+      data: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        nickname: user.nickname,
+        bio: user.bio,
+        profileImage: user.profileImage,
+        visibility: user.visibility,
+        role: user.role,
+        emailVerified: user.emailVerified,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        followersCount,
+        followingCount,
+        postsCount,
+      },
+    });
+  } catch (error) {
+    log("ERROR", "사용자 프로필 조회 실패 (username)", error);
+    res.status(500).json({
+      success: false,
+      message: "사용자 프로필 조회 중 오류가 발생했습니다",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};

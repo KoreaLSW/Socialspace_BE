@@ -203,6 +203,70 @@ export class UserModel {
     }
   }
 
+  // 추천 유저(팔로우하지 않은 인기 유저 + 친구의 친구)
+  static async getSuggestedUsers(
+    userId: string,
+    limit: number = 10
+  ): Promise<any[]> {
+    try {
+      const client = await pool.connect();
+      const result = await client.query(
+        `
+        WITH my_follows AS (
+          SELECT following_id
+          FROM follows
+          WHERE follower_id = $1 AND is_accepted = true
+        ),
+        friends_follows AS (
+          SELECT f2.following_id AS user_id
+          FROM follows f1
+          JOIN follows f2 ON f1.following_id = f2.follower_id
+          WHERE f1.follower_id = $1
+            AND f2.is_accepted = true
+            AND f2.following_id != $1
+            AND f2.following_id NOT IN (SELECT following_id FROM my_follows)
+        ),
+        popular_users AS (
+          SELECT u.id
+          FROM users u
+          LEFT JOIN follows f ON u.id = f.following_id AND f.is_accepted = true
+          WHERE u.id != $1
+            AND u.id NOT IN (SELECT following_id FROM my_follows)
+          GROUP BY u.id
+          ORDER BY COUNT(f.follower_id) DESC
+          LIMIT $2
+        )
+        SELECT
+          u.id,
+          u.username,
+          u.nickname,
+          u.profile_image,
+          COUNT(f2.follower_id) AS followers,
+          CASE
+            WHEN u.id IN (SELECT user_id FROM friends_follows) THEN 'friend_of_friend'
+            ELSE 'popular'
+          END AS reason
+        FROM users u
+        LEFT JOIN follows f2 ON u.id = f2.following_id AND f2.is_accepted = true
+        WHERE u.id IN (
+            SELECT user_id FROM friends_follows
+            UNION
+            SELECT id FROM popular_users
+        )
+        GROUP BY u.id, u.username, u.nickname, u.profile_image
+        ORDER BY reason, followers DESC
+        LIMIT $2;
+      `,
+        [userId, limit]
+      );
+      client.release();
+      return result.rows;
+    } catch (error) {
+      log("ERROR", "추천 유저 조회 실패", error);
+      throw error;
+    }
+  }
+
   // 데이터베이스 행을 User 객체로 변환
   private static mapRowToUser(row: any): User {
     return {
