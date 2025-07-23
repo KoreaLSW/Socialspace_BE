@@ -6,6 +6,10 @@ import {
   logout,
   getRecommendedUsers,
   getUserProfileByUsername,
+  checkFollowStatus,
+  toggleFollow,
+  toggleFavorite,
+  toggleBlock,
 } from "../controllers/authController";
 import { authenticateToken } from "../middleware/auth";
 
@@ -26,10 +30,26 @@ router.get("/profile/username/:username", getUserProfileByUsername);
 // 사용자 프로필 업데이트
 router.put("/profile", authenticateToken, updateProfile);
 
+// 팔로우 상태 확인
+router.get(
+  "/follow/status/:targetUserId",
+  authenticateToken,
+  checkFollowStatus
+);
+
+// 팔로우/언팔로우
+router.post("/follow/:targetUserId", authenticateToken, toggleFollow);
+
+// 친한친구 추가/제거
+router.post("/favorite/:targetUserId", authenticateToken, toggleFavorite);
+
+// 차단하기/차단해제
+router.post("/block/:targetUserId", authenticateToken, toggleBlock);
+
 // 로그아웃 처리
 router.post("/logout", authenticateToken, logout);
 
 // 추천 유저 조회
-router.get("/recommended-users", authenticateToken, getRecommendedUsers);
+router.get("/recommended-userss", authenticateToken, getRecommendedUsers);
 
 export default router;

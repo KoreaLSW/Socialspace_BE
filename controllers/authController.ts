@@ -374,3 +374,272 @@ export const getUserProfileByUsername = async (req: Request, res: Response) => {
     });
   }
 };
+
+// 팔로우 상태 확인
+export const checkFollowStatus = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const userId = req.user?.id;
+    const { targetUserId } = req.params;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "인증이 필요합니다",
+      });
+      return;
+    }
+
+    const client = await pool.connect();
+
+    // 팔로우 상태 확인
+    const followResult = await client.query(
+      "SELECT * FROM follows WHERE follower_id = $1 AND following_id = $2",
+      [userId, targetUserId]
+    );
+
+    // 친한친구 상태 확인
+    const favoriteResult = await client.query(
+      "SELECT * FROM user_favorites WHERE user_id = $1 AND favorite_id = $2",
+      [userId, targetUserId]
+    );
+
+    // 차단 상태 확인
+    const blockResult = await client.query(
+      "SELECT * FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+      [userId, targetUserId]
+    );
+
+    client.release();
+
+    res.json({
+      success: true,
+      data: {
+        isFollowing: followResult.rows.length > 0,
+        isFavorite: favoriteResult.rows.length > 0,
+        isBlocked: blockResult.rows.length > 0,
+      },
+    });
+  } catch (error) {
+    log("ERROR", "팔로우 상태 확인 실패", error);
+    res.status(500).json({
+      success: false,
+      message: "팔로우 상태 확인 중 오류가 발생했습니다",
+    });
+  }
+};
+
+// 팔로우/언팔로우
+export const toggleFollow = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const userId = req.user?.id;
+    const { targetUserId } = req.params;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "인증이 필요합니다",
+      });
+      return;
+    }
+
+    if (userId === targetUserId) {
+      res.status(400).json({
+        success: false,
+        message: "자기 자신을 팔로우할 수 없습니다",
+      });
+      return;
+    }
+
+    const client = await pool.connect();
+
+    // 현재 팔로우 상태 확인
+    const existingFollow = await client.query(
+      "SELECT * FROM follows WHERE follower_id = $1 AND following_id = $2",
+      [userId, targetUserId]
+    );
+
+    if (existingFollow.rows.length > 0) {
+      // 언팔로우
+      await client.query(
+        "DELETE FROM follows WHERE follower_id = $1 AND following_id = $2",
+        [userId, targetUserId]
+      );
+      client.release();
+
+      res.json({
+        success: true,
+        message: "팔로우를 취소했습니다",
+        data: { isFollowing: false },
+      });
+    } else {
+      // 팔로우
+      await client.query(
+        "INSERT INTO follows (follower_id, following_id) VALUES ($1, $2)",
+        [userId, targetUserId]
+      );
+      client.release();
+
+      res.json({
+        success: true,
+        message: "팔로우했습니다",
+        data: { isFollowing: true },
+      });
+    }
+  } catch (error) {
+    log("ERROR", "팔로우/언팔로우 실패", error);
+    res.status(500).json({
+      success: false,
+      message: "팔로우 처리 중 오류가 발생했습니다",
+    });
+  }
+};
+
+// 친한친구 추가/제거
+export const toggleFavorite = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const userId = req.user?.id;
+    const { targetUserId } = req.params;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "인증이 필요합니다",
+      });
+      return;
+    }
+
+    const client = await pool.connect();
+
+    // 현재 친한친구 상태 확인
+    const existingFavorite = await client.query(
+      "SELECT * FROM user_favorites WHERE user_id = $1 AND favorite_id = $2",
+      [userId, targetUserId]
+    );
+
+    if (existingFavorite.rows.length > 0) {
+      // 친한친구 제거
+      await client.query(
+        "DELETE FROM user_favorites WHERE user_id = $1 AND favorite_id = $2",
+        [userId, targetUserId]
+      );
+      client.release();
+
+      res.json({
+        success: true,
+        message: "친한친구에서 제거했습니다",
+        data: { isFavorite: false },
+      });
+    } else {
+      // 친한친구 추가
+      await client.query(
+        "INSERT INTO user_favorites (user_id, favorite_id) VALUES ($1, $2)",
+        [userId, targetUserId]
+      );
+      client.release();
+
+      res.json({
+        success: true,
+        message: "친한친구에 추가했습니다",
+        data: { isFavorite: true },
+      });
+    }
+  } catch (error) {
+    log("ERROR", "친한친구 처리 실패", error);
+    res.status(500).json({
+      success: false,
+      message: "친한친구 처리 중 오류가 발생했습니다",
+    });
+  }
+};
+
+// 차단하기/차단해제
+export const toggleBlock = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { targetUserId } = req.params;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "인증이 필요합니다",
+      });
+      return;
+    }
+
+    if (userId === targetUserId) {
+      res.status(400).json({
+        success: false,
+        message: "자기 자신을 차단할 수 없습니다",
+      });
+      return;
+    }
+
+    const client = await pool.connect();
+
+    // 현재 차단 상태 확인
+    const existingBlock = await client.query(
+      "SELECT * FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+      [userId, targetUserId]
+    );
+
+    if (existingBlock.rows.length > 0) {
+      // 차단 해제
+      await client.query(
+        "DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+        [userId, targetUserId]
+      );
+      client.release();
+
+      res.json({
+        success: true,
+        message: "차단을 해제했습니다",
+        data: { isBlocked: false },
+      });
+    } else {
+      // 차단하기 (팔로우 관계도 자동 삭제)
+      await client.query("BEGIN");
+
+      // 팔로우 관계 삭제
+      await client.query(
+        "DELETE FROM follows WHERE (follower_id = $1 AND following_id = $2) OR (follower_id = $2 AND following_id = $1)",
+        [userId, targetUserId]
+      );
+
+      // 친한친구 관계 삭제
+      await client.query(
+        "DELETE FROM user_favorites WHERE (user_id = $1 AND favorite_id = $2) OR (user_id = $2 AND favorite_id = $1)",
+        [userId, targetUserId]
+      );
+
+      // 차단 추가
+      await client.query(
+        "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)",
+        [userId, targetUserId]
+      );
+
+      await client.query("COMMIT");
+      client.release();
+
+      res.json({
+        success: true,
+        message: "사용자를 차단했습니다",
+        data: { isBlocked: true },
+      });
+    }
+  } catch (error) {
+    log("ERROR", "차단 처리 실패", error);
+    res.status(500).json({
+      success: false,
+      message: "차단 처리 중 오류가 발생했습니다",
+    });
+  }
+};
