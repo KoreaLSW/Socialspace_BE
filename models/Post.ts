@@ -15,6 +15,7 @@ export interface Post {
   created_at: Date;
   updated_at: Date;
   author?: {
+    id: string;
     nickname: string;
     profileImage?: string;
   };
@@ -108,10 +109,13 @@ export class PostModel {
       );
       const total = parseInt(countResult.rows[0].count);
 
-      // 게시글 조회
+      // 게시글 조회 (사용자 정보 포함)
       const result = await client.query(
-        `SELECT * FROM posts WHERE user_id = $1 
-         ORDER BY created_at DESC 
+        `SELECT p.*, u.nickname, u.profile_image 
+         FROM posts p 
+         JOIN users u ON p.user_id = u.id 
+         WHERE p.user_id = $1 
+         ORDER BY p.created_at DESC 
          LIMIT $2 OFFSET $3`,
         [userId, limit, offset]
       );
@@ -325,6 +329,7 @@ export class PostModel {
       created_at: row.created_at,
       updated_at: row.updated_at,
       author: {
+        id: row.user_id,
         nickname: row.nickname,
         profileImage: row.profile_image,
       },
