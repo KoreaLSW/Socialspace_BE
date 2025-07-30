@@ -77,7 +77,11 @@ export const authenticateToken = async (
       nickname: user.nickname,
     };
 
+<<<<<<< HEAD
     console.log("✅ NextAuth 세션 인증 성공:", req.user);
+=======
+    //console.log("✅ NextAuth 세션 인증 성공:", req.user);
+>>>>>>> 86c2461 (좋아요 기능 추가)
     next();
   } catch (error) {
     console.error("🔴 인증 미들웨어 예외:", error);
