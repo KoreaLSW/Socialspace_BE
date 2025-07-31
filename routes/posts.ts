@@ -57,13 +57,10 @@ router.put("/:id", authenticateToken, PostsController.updatePost);
 // 게시글 삭제 (NextAuth 세션 인증 필요)
 router.delete("/:id", authenticateToken, PostsController.deletePost);
 
-<<<<<<< HEAD
-=======
 // 게시글 좋아요 (NextAuth 세션 인증 필요)
 router.post("/:id/like", authenticateToken, PostsController.likePost);
 
 // 게시글 좋아요 취소 (NextAuth 세션 인증 필요)
 router.delete("/:id/like", authenticateToken, PostsController.unlikePost);
 
->>>>>>> 86c2461 (좋아요 기능 추가)
 export default router;

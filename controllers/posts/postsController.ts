@@ -3,10 +3,7 @@ import { PostModel } from "../../models/Post";
 import { PostImageModel } from "../../models/PostImage";
 import { HashtagModel } from "../../models/Hashtag";
 import { PostHashtagModel } from "../../models/PostHashtag";
-<<<<<<< HEAD
-=======
 import { LikeModel } from "../../models/Like";
->>>>>>> 86c2461 (좋아요 기능 추가)
 import { log } from "../../utils/logger";
 import { AuthenticatedRequest } from "../../middleware/auth";
 
@@ -97,10 +94,6 @@ export class PostsController {
         posts.map(async (post) => {
           const images = await PostImageModel.findByPostId(post.id);
           const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
-<<<<<<< HEAD
-          // 조회수 비공개 처리
-          let filteredPost: any = { ...post, images, hashtags };
-=======
           
           // 좋아요 정보 가져오기
           const likeCount = await LikeModel.getCount(post.id, "post");
@@ -114,7 +107,6 @@ export class PostsController {
             like_count: likeCount,
             is_liked: isLiked 
           };
->>>>>>> 86c2461 (좋아요 기능 추가)
           if (post.hide_views) {
             delete filteredPost.views;
           }
@@ -145,10 +137,7 @@ export class PostsController {
   static async getPost(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-<<<<<<< HEAD
-=======
       const userId = (req as any).user?.id;
->>>>>>> 86c2461 (좋아요 기능 추가)
 
       const post = await PostModel.findById(id);
       if (!post) {
@@ -159,11 +148,6 @@ export class PostsController {
       // 이미지와 해시태그 정보 가져오기
       const images = await PostImageModel.findByPostId(post.id);
       const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
-<<<<<<< HEAD
-
-      // 조회수 비공개 처리
-      let filteredPost: any = { ...post, images, hashtags };
-=======
       
       // 좋아요 정보 가져오기
       const likeCount = await LikeModel.getCount(post.id, "post");
@@ -177,7 +161,6 @@ export class PostsController {
         like_count: likeCount,
         is_liked: isLiked 
       };
->>>>>>> 86c2461 (좋아요 기능 추가)
       if (post.hide_views) {
         delete filteredPost.views;
       }
@@ -331,24 +314,18 @@ export class PostsController {
         posts.map(async (post) => {
           const images = await PostImageModel.findByPostId(post.id);
           const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
-<<<<<<< HEAD
-=======
           
           // 좋아요 정보 가져오기 (로그인한 사용자의 경우)
           const currentUserId = (req as any).user?.id;
           const likeCount = await LikeModel.getCount(post.id, "post");
           const isLiked = currentUserId ? await LikeModel.isLiked(currentUserId, post.id, "post") : false;
           
->>>>>>> 86c2461 (좋아요 기능 추가)
           return {
             ...post,
             images,
             hashtags,
-<<<<<<< HEAD
-=======
             like_count: likeCount,
             is_liked: isLiked,
->>>>>>> 86c2461 (좋아요 기능 추가)
           };
         })
       );
@@ -398,23 +375,17 @@ export class PostsController {
         posts.map(async (post) => {
           const images = await PostImageModel.findByPostId(post.id);
           const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
-<<<<<<< HEAD
-=======
           
           // 좋아요 정보 가져오기 (내 게시글이므로 항상 userId 존재)
           const likeCount = await LikeModel.getCount(post.id, "post");
           const isLiked = await LikeModel.isLiked(userId, post.id, "post");
           
->>>>>>> 86c2461 (좋아요 기능 추가)
           return {
             ...post,
             images,
             hashtags,
-<<<<<<< HEAD
-=======
             like_count: likeCount,
             is_liked: isLiked,
->>>>>>> 86c2461 (좋아요 기능 추가)
           };
         })
       );
@@ -461,24 +432,18 @@ export class PostsController {
         posts.map(async (post) => {
           const images = await PostImageModel.findByPostId(post.id);
           const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
-<<<<<<< HEAD
-=======
           
           // 좋아요 정보 가져오기 (로그인한 사용자의 경우)
           const currentUserId = (req as any).user?.id;
           const likeCount = await LikeModel.getCount(post.id, "post");
           const isLiked = currentUserId ? await LikeModel.isLiked(currentUserId, post.id, "post") : false;
           
->>>>>>> 86c2461 (좋아요 기능 추가)
           return {
             ...post,
             images,
             hashtags,
-<<<<<<< HEAD
-=======
             like_count: likeCount,
             is_liked: isLiked,
->>>>>>> 86c2461 (좋아요 기능 추가)
           };
         })
       );
@@ -501,8 +466,6 @@ export class PostsController {
         .json({ error: "해시태그 게시글 조회 중 오류가 발생했습니다." });
     }
   }
-<<<<<<< HEAD
-=======
 
   // 게시글 좋아요
   static async likePost(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -601,5 +564,4 @@ export class PostsController {
     }
   }
   
->>>>>>> 86c2461 (좋아요 기능 추가)
 }

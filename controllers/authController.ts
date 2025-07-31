@@ -81,7 +81,6 @@ export const googleLogin = async (req: Request, res: Response) => {
       return;
     }
 
-<<<<<<< HEAD
     console.log("🔍 Google 로그인 요청:", {
       googleId,
       email,
@@ -89,30 +88,23 @@ export const googleLogin = async (req: Request, res: Response) => {
       hasImage: !!image,
     });
 
-=======
->>>>>>> 86c2461 (좋아요 기능 추가)
+
     // 기존 사용자 확인
     let user = await UserModel.findByEmail(email);
 
     if (user) {
-<<<<<<< HEAD
-      // 기존 사용자 정보 업데이트
+      // 기존 사용자 로그인/정보 업데이트
       console.log("✅ 기존 사용자 로그인:", user.email);
 
-=======
->>>>>>> 86c2461 (좋아요 기능 추가)
       // 프로필 이미지 업데이트 (변경된 경우)
       if (image && user.profileImage !== image) {
         user.profileImage = image;
         await UserModel.update(user.id, { profileImage: image });
       }
     } else {
-<<<<<<< HEAD
       // 새 사용자 생성
       console.log("🆕 새 사용자 생성:", email);
 
-=======
->>>>>>> 86c2461 (좋아요 기능 추가)
       const newUser: NextAuthGoogleUser = {
         googleId,
         email,
@@ -122,10 +114,7 @@ export const googleLogin = async (req: Request, res: Response) => {
       };
 
       user = await UserModel.create(newUser);
-<<<<<<< HEAD
       console.log("✅ 새 사용자 생성 완료:", user.username);
-=======
->>>>>>> 86c2461 (좋아요 기능 추가)
     }
 
     res.json({
