@@ -6,6 +6,7 @@ import {
 } from "../controllers/healthController";
 import authRoutes from "./auth";
 import postsRoutes from "./posts";
+import commentsRoutes from "./comments";
 
 const router = express.Router();
 
@@ -33,5 +34,8 @@ router.use("/auth", authRoutes);
 
 // 게시글 라우트
 router.use("/posts", postsRoutes);
+
+// 댓글 라우트
+router.use("/comments", commentsRoutes);
 
 export default router;

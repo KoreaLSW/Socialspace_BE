@@ -16,6 +16,7 @@ export interface Post {
   updated_at: Date;
   author?: {
     id: string;
+    username: string;
     nickname: string;
     profileImage?: string;
   };
@@ -76,9 +77,13 @@ export class PostModel {
   static async findById(id: string): Promise<Post | null> {
     try {
       const client = await pool.connect();
-      const result = await client.query("SELECT * FROM posts WHERE id = $1", [
-        id,
-      ]);
+      const result = await client.query(
+        `SELECT p.*, u.username, u.nickname, u.profile_image 
+         FROM posts p 
+         JOIN users u ON p.user_id = u.id 
+         WHERE p.id = $1`,
+        [id]
+      );
       client.release();
 
       if (result.rows.length === 0) {
@@ -111,7 +116,7 @@ export class PostModel {
 
       // 게시글 조회 (사용자 정보 포함)
       const result = await client.query(
-        `SELECT p.*, u.nickname, u.profile_image 
+        `SELECT p.*, u.username, u.nickname, u.profile_image 
          FROM posts p 
          JOIN users u ON p.user_id = u.id 
          WHERE p.user_id = $1 
@@ -169,7 +174,7 @@ export class PostModel {
       }
 
       const countQuery = `SELECT COUNT(*) FROM posts p ${countWhereClause}`;
-      const selectQuery = `SELECT p.*, u.nickname, u.profile_image FROM posts p JOIN users u ON p.user_id = u.id ${whereClause} ORDER BY p.created_at DESC LIMIT $${
+      const selectQuery = `SELECT p.*, u.username, u.nickname, u.profile_image FROM posts p JOIN users u ON p.user_id = u.id ${whereClause} ORDER BY p.created_at DESC LIMIT $${
         params.length + 1
       } OFFSET $${params.length + 2}`;
       params.push(limit, offset);
@@ -330,6 +335,7 @@ export class PostModel {
       updated_at: row.updated_at,
       author: {
         id: row.user_id,
+        username: row.username,
         nickname: row.nickname,
         profileImage: row.profile_image,
       },
