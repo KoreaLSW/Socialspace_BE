@@ -22,13 +22,6 @@ export const authenticateToken = async (
     // 요청 헤더에서 세션 정보 추출
     const sessionData = req.headers["x-session-data"];
 
-    console.log("🔍 인증 미들웨어 시작:", {
-      url: req.url,
-      method: req.method,
-      hasSessionData: !!sessionData,
-      headers: Object.keys(req.headers),
-    });
-
     if (!sessionData) {
       console.warn("⚠️ NextAuth 세션 정보가 없습니다.");
       res.status(401).json({ error: "인증이 필요합니다." });
@@ -47,12 +40,6 @@ export const authenticateToken = async (
       res.status(400).json({ error: "세션 정보 형식이 잘못되었습니다." });
       return;
     }
-
-    console.log("🔍 NextAuth 세션 정보 확인:", {
-      hasUserId: !!sessionInfo.userId,
-      hasEmail: !!sessionInfo.email,
-      email: sessionInfo.email,
-    });
 
     // 필수 정보 확인
     if (!sessionInfo.userId || !sessionInfo.email) {

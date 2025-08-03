@@ -198,6 +198,35 @@ export class CommentModel {
     }
   }
 
+  // 댓글 ID로 댓글 조회
+  static async findById(commentId: string): Promise<Comment | null> {
+    try {
+      const client = await pool.connect();
+      const query = `
+        SELECT 
+          c.*,
+          u.username as author_username,
+          u.nickname as author_nickname,
+          u.profile_image as author_profile_image
+        FROM comments c
+        JOIN users u ON c.user_id = u.id
+        WHERE c.id = $1
+      `;
+
+      const result = await client.query(query, [commentId]);
+      client.release();
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return this.mapRowToCommentWithAuthor(result.rows[0]);
+    } catch (error) {
+      log("ERROR", "댓글 조회 실패", error);
+      throw error;
+    }
+  }
+
   // DB 행을 Comment 객체로 변환
   private static mapRowToComment(row: any): Comment {
     return {

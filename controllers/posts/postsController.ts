@@ -4,6 +4,7 @@ import { PostImageModel } from "../../models/PostImage";
 import { HashtagModel } from "../../models/Hashtag";
 import { PostHashtagModel } from "../../models/PostHashtag";
 import { LikeModel } from "../../models/Like"; // 좋아요 기능 추가
+import { CommentModel } from "../../models/Comment"; // 댓글 수 기능 추가
 import { log } from "../../utils/logger";
 import { AuthenticatedRequest } from "../../middleware/auth";
 
@@ -100,6 +101,9 @@ export class PostsController {
             ? await LikeModel.isLiked(userId, post.id, "post")
             : false;
 
+          // 댓글 수 가져오기
+          const commentCount = await CommentModel.getCommentCount(post.id);
+
           // 조회수 비공개 처리
           let filteredPost: any = {
             ...post,
@@ -107,6 +111,7 @@ export class PostsController {
             hashtags,
             like_count: likeCount,
             is_liked: isLiked,
+            comment_count: commentCount,
           };
           if (post.hide_views) {
             delete filteredPost.views;
@@ -155,6 +160,9 @@ export class PostsController {
         ? await LikeModel.isLiked(userId, post.id, "post")
         : false;
 
+      // 댓글 수 가져오기
+      const commentCount = await CommentModel.getCommentCount(post.id);
+
       // 조회수 비공개 처리
       let filteredPost: any = {
         ...post,
@@ -162,6 +170,7 @@ export class PostsController {
         hashtags,
         like_count: likeCount,
         is_liked: isLiked,
+        comment_count: commentCount,
       };
       if (post.hide_views) {
         delete filteredPost.views;
@@ -305,6 +314,7 @@ export class PostsController {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
 
+      console.log("userId!!!!", userId);
       const { posts, total } = await PostModel.findByUserId(
         userId,
         page,
@@ -324,12 +334,16 @@ export class PostsController {
             ? await LikeModel.isLiked(currentUserId, post.id, "post")
             : false;
 
+          // 댓글 수 가져오기
+          const commentCount = await CommentModel.getCommentCount(post.id);
+
           return {
             ...post,
             images,
             hashtags,
             like_count: likeCount,
             is_liked: isLiked,
+            comment_count: commentCount,
           };
         })
       );

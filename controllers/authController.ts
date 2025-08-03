@@ -287,7 +287,6 @@ export const getRecommendedUsers = async (
 ) => {
   try {
     const userId = req.user?.id;
-    console.log("getRecommendedUsers", userId);
     if (!userId) {
       res.status(401).json({ success: false, message: "로그인이 필요합니다." });
       return;

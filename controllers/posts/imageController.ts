@@ -65,7 +65,7 @@ export class ImageController {
       }
 
       console.log("🔍 Cloudinary 업로드 시작...");
-      const result = await uploadImage(req.file, "socialspace/posts");
+      const result = await uploadImage(req.file, `socialspace/posts/${userId}`);
 
       console.log("✅ 이미지 업로드 성공:", {
         public_id: result.public_id,
@@ -118,7 +118,10 @@ export class ImageController {
         return;
       }
 
-      const results = await uploadMultipleImages(files, "socialspace/posts");
+      const results = await uploadMultipleImages(
+        files,
+        `socialspace/posts/${userId}`
+      );
 
       log("INFO", `${results.length}개 이미지 업로드 성공 by user ${userId}`);
 
@@ -157,7 +160,10 @@ export class ImageController {
         return;
       }
 
-      const result = await uploadBase64Image(imageData, "socialspace/posts");
+      const result = await uploadBase64Image(
+        imageData,
+        `socialspace/posts/${userId}`
+      );
 
       log(
         "INFO",

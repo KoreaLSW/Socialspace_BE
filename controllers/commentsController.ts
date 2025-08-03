@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { CommentModel, Comment, CreateCommentData } from "../models/Comment";
+import { LikeModel } from "../models/Like";
 import { log } from "../utils/logger";
 
 export class CommentsController {
@@ -276,6 +277,134 @@ export class CommentsController {
       res.status(500).json({
         success: false,
         message: "댓글 수 조회 중 오류가 발생했습니다.",
+      });
+    }
+  }
+
+  // 댓글 좋아요
+  static async likeComment(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const { commentId } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "인증되지 않은 사용자입니다.",
+        });
+        return;
+      }
+
+      // 댓글 존재 확인
+      const comment = await CommentModel.findById(commentId);
+
+      if (!comment) {
+        res.status(404).json({
+          success: false,
+          message: "댓글을 찾을 수 없습니다.",
+        });
+        return;
+      }
+
+      // 이미 좋아요를 눌렀는지 확인
+      const isAlreadyLiked = await LikeModel.isLiked(
+        userId,
+        commentId,
+        "comment"
+      );
+
+      if (!isAlreadyLiked) {
+        await LikeModel.create({
+          user_id: userId,
+          target_id: commentId,
+          target_type: "comment",
+        });
+      }
+
+      // 좋아요 수 조회
+      const likeCount = await LikeModel.getCount(commentId, "comment");
+
+      log("INFO", `댓글 좋아요 처리 완료: ${commentId} by user ${userId}`);
+
+      res.json({
+        success: true,
+        data: {
+          commentId,
+          likeCount,
+          isLiked: true,
+        },
+        message: isAlreadyLiked
+          ? "이미 좋아요된 상태입니다."
+          : "댓글에 좋아요를 추가했습니다.",
+      });
+    } catch (error) {
+      log("ERROR", "댓글 좋아요 실패", error);
+      res.status(500).json({
+        success: false,
+        message: "댓글 좋아요 처리 중 오류가 발생했습니다.",
+      });
+    }
+  }
+
+  // 댓글 좋아요 취소
+  static async unlikeComment(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const { commentId } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "인증되지 않은 사용자입니다.",
+        });
+        return;
+      }
+
+      // 댓글 존재 확인
+      const comment = await CommentModel.findById(commentId);
+
+      if (!comment) {
+        res.status(404).json({
+          success: false,
+          message: "댓글을 찾을 수 없습니다.",
+        });
+        return;
+      }
+
+      // 좋아요가 되어있는지 확인
+      const isLiked = await LikeModel.isLiked(userId, commentId, "comment");
+
+      if (isLiked) {
+        await LikeModel.delete(userId, commentId, "comment");
+      }
+
+      // 좋아요 수 조회
+      const likeCount = await LikeModel.getCount(commentId, "comment");
+
+      log("INFO", `댓글 좋아요 취소 완료: ${commentId} by user ${userId}`);
+
+      res.json({
+        success: true,
+        data: {
+          commentId,
+          likeCount,
+          isLiked: false,
+        },
+        message: !isLiked
+          ? "이미 좋아요가 취소된 상태입니다."
+          : "댓글 좋아요를 취소했습니다.",
+      });
+    } catch (error) {
+      log("ERROR", "댓글 좋아요 취소 실패", error);
+      res.status(500).json({
+        success: false,
+        message: "댓글 좋아요 취소 중 오류가 발생했습니다.",
       });
     }
   }
