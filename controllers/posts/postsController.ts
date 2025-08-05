@@ -314,7 +314,6 @@ export class PostsController {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
 
-      console.log("userId!!!!", userId);
       const { posts, total } = await PostModel.findByUserId(
         userId,
         page,
@@ -326,7 +325,6 @@ export class PostsController {
         posts.map(async (post) => {
           const images = await PostImageModel.findByPostId(post.id);
           const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
-
           // 좋아요 정보 가져오기 (로그인한 사용자의 경우)
           const currentUserId = (req as any).user?.id;
           const likeCount = await LikeModel.getCount(post.id, "post");
