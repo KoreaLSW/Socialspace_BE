@@ -34,4 +34,25 @@ router.delete(
 // 게시글의 댓글 수 조회
 router.get("/post/:postId/count", CommentsController.getCommentCount);
 
+// 댓글 좋아요
+router.post(
+  "/:commentId/like",
+  authenticateToken,
+  CommentsController.likeComment
+);
+
+// 댓글 좋아요 취소
+router.delete(
+  "/:commentId/like",
+  authenticateToken,
+  CommentsController.unlikeComment
+);
+
+// 댓글 좋아요 사용자 목록 (선택적 인증)
+router.get(
+  "/:commentId/likes",
+  optionalAuth,
+  CommentsController.getCommentLikes
+);
+
 export default router;

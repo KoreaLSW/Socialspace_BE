@@ -267,6 +267,27 @@ export class UserModel {
     }
   }
 
+  // 멘션/검색용 간단 사용자 검색 (username, nickname LIKE)
+  static async searchByQuery(q: string, limit: number = 5): Promise<any[]> {
+    try {
+      const client = await pool.connect();
+      const like = `%${q}%`;
+      const result = await client.query(
+        `SELECT id, username, nickname, profile_image
+         FROM users
+         WHERE username ILIKE $1 OR nickname ILIKE $1
+         ORDER BY username ASC
+         LIMIT $2`,
+        [like, limit]
+      );
+      client.release();
+      return result.rows;
+    } catch (error) {
+      log("ERROR", "사용자 검색 실패 (query)", error);
+      throw error;
+    }
+  }
+
   // 데이터베이스 행을 User 객체로 변환
   private static mapRowToUser(row: any): User {
     return {

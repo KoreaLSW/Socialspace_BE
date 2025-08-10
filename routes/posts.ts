@@ -63,4 +63,7 @@ router.post("/:id/like", authenticateToken, PostsController.likePost);
 // 게시글 좋아요 취소 (NextAuth 세션 인증 필요)
 router.delete("/:id/like", authenticateToken, PostsController.unlikePost);
 
+// 게시글 좋아요 사용자 목록 (선택적 인증)
+router.get("/:id/likes", optionalAuth, PostsController.getPostLikes);
+
 export default router;

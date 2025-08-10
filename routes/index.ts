@@ -7,6 +7,8 @@ import {
 import authRoutes from "./auth";
 import postsRoutes from "./posts";
 import commentsRoutes from "./comments";
+import followRoutes from "./follow";
+import usersRoutes from "./users";
 
 const router = express.Router();
 
@@ -32,10 +34,16 @@ router.get("/api/test-time", testKoreanTime);
 // 인증 라우트
 router.use("/auth", authRoutes);
 
+// 팔로우 라우트 (인증 하위 경로로 연결)
+router.use("/follow", followRoutes);
+
 // 게시글 라우트
 router.use("/posts", postsRoutes);
 
 // 댓글 라우트
 router.use("/comments", commentsRoutes);
+
+// 사용자 라우트
+router.use("/users", usersRoutes);
 
 export default router;

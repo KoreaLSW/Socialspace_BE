@@ -73,6 +73,8 @@ export class CommentsController {
     try {
       const { postId } = req.params;
       const user_id = req.user?.id;
+      const page = parseInt((req.query.page as string) || "1", 10);
+      const limit = parseInt((req.query.limit as string) || "20", 10);
 
       if (!postId) {
         res.status(400).json({
@@ -82,12 +84,23 @@ export class CommentsController {
         return;
       }
 
-      const comments = await CommentModel.findByPostId(postId, user_id);
+      const { comments, total } = await CommentModel.findByPostIdPaged(
+        postId,
+        page,
+        limit,
+        user_id
+      );
 
       res.status(200).json({
         success: true,
         message: "댓글 목록을 가져왔습니다.",
         data: comments,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
       });
     } catch (error) {
       log("ERROR", "댓글 목록 조회 오류", error);
@@ -405,6 +418,55 @@ export class CommentsController {
       res.status(500).json({
         success: false,
         message: "댓글 좋아요 취소 중 오류가 발생했습니다.",
+      });
+    }
+  }
+
+  // 댓글 좋아요 사용자 목록 조회 (선택적 인증)
+  static async getCommentLikes(req: Request, res: Response): Promise<void> {
+    try {
+      const { commentId } = req.params;
+      const page = parseInt((req.query.page as string) || "1", 10);
+      const limit = parseInt((req.query.limit as string) || "10", 10);
+
+      if (!commentId) {
+        res
+          .status(400)
+          .json({ success: false, message: "댓글 ID가 필요합니다." });
+        return;
+      }
+
+      // 댓글 존재 확인
+      const comment = await CommentModel.findById(commentId);
+      if (!comment) {
+        res
+          .status(404)
+          .json({ success: false, message: "댓글을 찾을 수 없습니다." });
+        return;
+      }
+
+      const { users, total } = await LikeModel.getLikesUsersByTarget(
+        commentId,
+        "comment",
+        page,
+        limit
+      );
+
+      res.json({
+        success: true,
+        data: users,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+        message: "댓글 좋아요 사용자 목록을 성공적으로 조회했습니다.",
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: "댓글 좋아요 사용자 목록 조회 중 오류가 발생했습니다.",
       });
     }
   }

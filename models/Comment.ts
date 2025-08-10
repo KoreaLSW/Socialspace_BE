@@ -91,6 +91,58 @@ export class CommentModel {
     }
   }
 
+  // 게시글의 댓글 목록 페이지네이션 조회
+  static async findByPostIdPaged(
+    postId: string,
+    page: number = 1,
+    limit: number = 20,
+    currentUserId?: string
+  ): Promise<{ comments: Comment[]; total: number }> {
+    try {
+      const client = await pool.connect();
+
+      const countQuery = `SELECT COUNT(*) as count FROM comments WHERE post_id = $1 AND parent_id IS NULL`;
+      const countResult = await client.query(countQuery, [postId]);
+      const total = parseInt(countResult.rows[0].count, 10) || 0;
+
+      const offset = (page - 1) * limit;
+
+      const listQuery = `
+        SELECT 
+          c.*,
+          u.username as author_username,
+          u.nickname as author_nickname,
+          u.profile_image as author_profile_image,
+          COUNT(l.id) as like_count,
+          CASE WHEN ul.user_id IS NOT NULL THEN true ELSE false END as is_liked
+        FROM comments c
+        JOIN users u ON c.user_id = u.id
+        LEFT JOIN likes l ON l.target_id = c.id AND l.target_type = 'comment'
+        LEFT JOIN likes ul ON ul.target_id = c.id AND ul.target_type = 'comment' AND ul.user_id = $4
+        WHERE c.post_id = $1 AND c.parent_id IS NULL
+        GROUP BY c.id, u.username, u.nickname, u.profile_image, ul.user_id
+        ORDER BY c.created_at ASC
+        LIMIT $2 OFFSET $3
+      `;
+
+      const listResult = await client.query(listQuery, [
+        postId,
+        limit,
+        offset,
+        currentUserId || null,
+      ]);
+      client.release();
+
+      const comments = listResult.rows.map((row) =>
+        this.mapRowToCommentWithAuthor(row)
+      );
+      return { comments, total };
+    } catch (error) {
+      log("ERROR", "댓글 페이지네이션 조회 실패", error);
+      throw error;
+    }
+  }
+
   // 댓글의 대댓글 조회
   static async findRepliesByParentId(
     parentId: string,

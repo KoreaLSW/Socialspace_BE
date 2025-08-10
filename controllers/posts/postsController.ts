@@ -582,4 +582,46 @@ export class PostsController {
         .json({ error: "좋아요 취소 처리 중 오류가 발생했습니다." });
     }
   }
+
+  // 게시글 좋아요 사용자 목록 조회
+  static async getPostLikes(req: Request, res: Response): Promise<void> {
+    try {
+      const { id: postId } = req.params;
+      const page = parseInt((req.query.page as string) || "1", 10);
+      const limit = parseInt((req.query.limit as string) || "10", 10);
+
+      // 게시글 존재 확인
+      const post = await PostModel.findById(postId);
+      if (!post) {
+        res
+          .status(404)
+          .json({ success: false, message: "게시글을 찾을 수 없습니다." });
+        return;
+      }
+
+      const { users, total } = await LikeModel.getLikesUsersByTarget(
+        postId,
+        "post",
+        page,
+        limit
+      );
+
+      res.json({
+        success: true,
+        data: users,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+        message: "게시글 좋아요 사용자 목록을 성공적으로 조회했습니다.",
+      });
+    } catch (error) {
+      log("ERROR", "게시글 좋아요 사용자 목록 조회 실패", error);
+      res
+        .status(500)
+        .json({ success: false, message: "목록 조회 중 오류가 발생했습니다." });
+    }
+  }
 }

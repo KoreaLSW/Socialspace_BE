@@ -473,3 +473,97 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_post_user_view
     (post_id ASC NULLS LAST, user_id ASC NULLS LAST)
     TABLESPACE pg_default
     WHERE user_id IS NOT NULL;
+
+-- 댓글 멘션 테이블
+CREATE TABLE IF NOT EXISTS public.comment_mentions
+(
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    comment_id uuid NOT NULL,
+    mentioned_user_id uuid NOT NULL,
+    start_index integer,
+    length integer,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT comment_mentions_pkey PRIMARY KEY (id),
+    CONSTRAINT comment_mentions_comment_id_fkey FOREIGN KEY (comment_id)
+        REFERENCES public.comments (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT comment_mentions_mentioned_user_id_fkey FOREIGN KEY (mentioned_user_id)
+        REFERENCES public.users (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE
+)
+TABLESPACE pg_default;
+ALTER TABLE IF EXISTS public.comment_mentions
+    OWNER to socialspace_user;
+COMMENT ON TABLE public.comment_mentions
+    IS '댓글/대댓글에서 유저 멘션을 저장하는 테이블';
+COMMENT ON COLUMN public.comment_mentions.comment_id
+    IS '멘션이 포함된 댓글 ID';
+COMMENT ON COLUMN public.comment_mentions.mentioned_user_id
+    IS '멘션된 사용자 ID';
+COMMENT ON COLUMN public.comment_mentions.start_index
+    IS '멘션 시작 인덱스(UTF-16 기준 권장)';
+COMMENT ON COLUMN public.comment_mentions.length
+    IS '멘션 길이';
+COMMENT ON COLUMN public.comment_mentions.created_at
+    IS '멘션이 생성된 시각';
+CREATE INDEX IF NOT EXISTS idx_comment_mentions_comment
+    ON public.comment_mentions USING btree
+    (comment_id ASC NULLS LAST)
+    TABLESPACE pg_default;
+CREATE INDEX IF NOT EXISTS idx_comment_mentions_user
+    ON public.comment_mentions USING btree
+    (mentioned_user_id ASC NULLS LAST)
+    TABLESPACE pg_default;
+CREATE INDEX IF NOT EXISTS idx_comment_mentions_user_created_at
+    ON public.comment_mentions USING btree
+    (mentioned_user_id ASC NULLS LAST, created_at DESC NULLS FIRST)
+    TABLESPACE pg_default;
+
+-- 게시글 멘션 테이블
+CREATE TABLE IF NOT EXISTS public.post_mentions
+(
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    post_id uuid NOT NULL,
+    mentioned_user_id uuid NOT NULL,
+    start_index integer,
+    length integer,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT post_mentions_pkey PRIMARY KEY (id),
+    CONSTRAINT post_mentions_mentioned_user_id_fkey FOREIGN KEY (mentioned_user_id)
+        REFERENCES public.users (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT post_mentions_post_id_fkey FOREIGN KEY (post_id)
+        REFERENCES public.posts (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE
+)
+TABLESPACE pg_default;
+ALTER TABLE IF EXISTS public.post_mentions
+    OWNER to socialspace_user;
+COMMENT ON TABLE public.post_mentions
+    IS '게시글에서 유저 멘션을 저장하는 테이블';
+COMMENT ON COLUMN public.post_mentions.post_id
+    IS '멘션이 포함된 게시글 ID';
+COMMENT ON COLUMN public.post_mentions.mentioned_user_id
+    IS '멘션된 사용자 ID';
+COMMENT ON COLUMN public.post_mentions.start_index
+    IS '멘션 시작 인덱스(UTF-16 기준 권장)';
+COMMENT ON COLUMN public.post_mentions.length
+    IS '멘션 길이';
+COMMENT ON COLUMN public.post_mentions.created_at
+    IS '멘션이 생성된 시각';
+CREATE INDEX IF NOT EXISTS idx_post_mentions_post
+    ON public.post_mentions USING btree
+    (post_id ASC NULLS LAST)
+    TABLESPACE pg_default;
+CREATE INDEX IF NOT EXISTS idx_post_mentions_user
+    ON public.post_mentions USING btree
+    (mentioned_user_id ASC NULLS LAST)
+    TABLESPACE pg_default;
+CREATE INDEX IF NOT EXISTS idx_post_mentions_user_created_at
+    ON public.post_mentions USING btree
+    (mentioned_user_id ASC NULLS LAST, created_at DESC NULLS FIRST)
+    TABLESPACE pg_default;
