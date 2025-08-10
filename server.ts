@@ -19,7 +19,7 @@ app.use(
       "http://localhost:3000", // NextJS 개발 서버
     ],
     credentials: true, // 쿠키 포함 허용
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",

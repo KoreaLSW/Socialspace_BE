@@ -9,6 +9,7 @@ import postsRoutes from "./posts";
 import commentsRoutes from "./comments";
 import followRoutes from "./follow";
 import usersRoutes from "./users";
+import notificationsRoutes from "./notifications";
 
 const router = express.Router();
 
@@ -45,5 +46,8 @@ router.use("/comments", commentsRoutes);
 
 // 사용자 라우트
 router.use("/users", usersRoutes);
+
+// 알림 라우트
+router.use("/notifications", notificationsRoutes);
 
 export default router;

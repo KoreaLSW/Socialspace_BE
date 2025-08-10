@@ -7,6 +7,8 @@ import { LikeModel } from "../../models/Like"; // 좋아요 기능 추가
 import { CommentModel } from "../../models/Comment"; // 댓글 수 기능 추가
 import { log } from "../../utils/logger";
 import { AuthenticatedRequest } from "../../middleware/auth";
+import { pool } from "../../config/database";
+import { NotificationModel } from "../../models/Notification";
 
 export class PostsController {
   // 게시글 생성
@@ -66,6 +68,28 @@ export class PostsController {
       }
 
       log("INFO", `게시글 생성 성공: ${newPost.id} by user ${userId}`);
+
+      // 알림: 내가 팔로우한 유저에게 새 게시글 알림
+      try {
+        const client = await pool.connect();
+        const res = await client.query(
+          `SELECT follower_id FROM follows WHERE following_id = $1 AND is_accepted = true`,
+          [userId]
+        );
+        client.release();
+        const followerIds: string[] = res.rows.map((r) => r.follower_id);
+        const notifRecords = followerIds
+          .filter((fid) => fid !== userId)
+          .map((fid) => ({
+            user_id: fid,
+            type: "followee_post",
+            from_user_id: userId,
+            target_id: newPost.id,
+          }));
+        await NotificationModel.createManyIfNotExists(notifRecords);
+      } catch (e) {
+        log("ERROR", "팔로워 새 게시글 알림 생성 실패", e);
+      }
 
       res.status(201).json({
         success: true,
@@ -509,6 +533,20 @@ export class PostsController {
           target_id: postId,
           target_type: "post",
         });
+
+        // 알림: 내 게시물에 좋아요가 눌렸을 때 (자기 자신 제외)
+        if (post.user_id && post.user_id !== userId) {
+          try {
+            await NotificationModel.createManyIfNotExists([
+              {
+                user_id: post.user_id,
+                type: "post_liked",
+                from_user_id: userId,
+                target_id: postId,
+              },
+            ]);
+          } catch (e) {}
+        }
       }
 
       // 좋아요 수 조회

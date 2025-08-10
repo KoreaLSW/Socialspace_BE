@@ -55,4 +55,13 @@ router.get(
   CommentsController.getCommentLikes
 );
 
+// 댓글 기본정보 조회 (포스트 매핑용)
+router.get("/:commentId/basic", CommentsController.getCommentBasic);
+
+// 특정 댓글의 페이지 계산 (limit 쿼리 사용 가능)
+router.get("/:commentId/page", CommentsController.getCommentPage);
+
+// 단일 댓글 조회 (선택적 인증)
+router.get("/:commentId", optionalAuth, CommentsController.getCommentById);
+
 export default router;

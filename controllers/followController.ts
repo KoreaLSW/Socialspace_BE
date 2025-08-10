@@ -2,6 +2,7 @@ import { Response } from "express";
 import { log } from "../utils/logger";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { FollowModel } from "../models/Follow";
+import { NotificationModel } from "../models/Notification";
 
 // 팔로우 상태 확인
 export const checkFollowStatus = async (
@@ -57,6 +58,20 @@ export const toggleFollow = async (
       userId,
       targetUserId
     );
+    // 알림: 상대방을 팔로우하기 시작했을 때, 팔로우 받은 사용자에게 알림
+    if (isFollowing && userId !== targetUserId) {
+      try {
+        await NotificationModel.createManyIfNotExists([
+          {
+            user_id: targetUserId,
+            type: "follow",
+            from_user_id: userId,
+            target_id: targetUserId,
+          },
+        ]);
+      } catch (e) {}
+    }
+
     res.json({
       success: true,
       message: isFollowing ? "팔로우했습니다" : "팔로우를 취소했습니다",

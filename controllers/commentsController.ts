@@ -2,6 +2,9 @@ import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { CommentModel, Comment, CreateCommentData } from "../models/Comment";
 import { LikeModel } from "../models/Like";
+import { NotificationModel } from "../models/Notification";
+import { PostModel } from "../models/Post";
+import { NotificationsController } from "./notificationsController";
 import { log } from "../utils/logger";
 
 export class CommentsController {
@@ -46,6 +49,27 @@ export class CommentsController {
       };
 
       const comment = await CommentModel.create(commentData);
+
+      // 알림: 내 게시글에 달린 댓글 알림 (게시글 작성자에게)
+      try {
+        const post = await PostModel.findById(post_id);
+        if (post && post.user_id && post.user_id !== user_id) {
+          await NotificationModel.createManyIfNotExists([
+            {
+              user_id: post.user_id,
+              type: "post_commented",
+              from_user_id: user_id,
+              target_id: comment.id,
+            },
+          ]);
+        }
+      } catch (e) {}
+
+      await NotificationsController.processCommentMentionsOnCreate({
+        commentId: comment.id,
+        authorUserId: user_id,
+        content,
+      });
 
       // 작성자 정보를 포함한 댓글 조회
       const comments = await CommentModel.findByPostId(post_id, user_id);
@@ -147,6 +171,124 @@ export class CommentsController {
     }
   }
 
+  // 댓글 기본 정보 (포스트 매핑용)
+  static async getCommentBasic(req: Request, res: Response): Promise<void> {
+    try {
+      const { commentId } = req.params as { commentId: string };
+      if (!commentId) {
+        res
+          .status(400)
+          .json({ success: false, message: "댓글 ID가 필요합니다." });
+        return;
+      }
+      const comment = await CommentModel.findById(commentId);
+      if (!comment) {
+        res
+          .status(404)
+          .json({ success: false, message: "댓글을 찾을 수 없습니다." });
+        return;
+      }
+      res.json({
+        success: true,
+        data: { id: comment.id, post_id: (comment as any).post_id },
+      });
+    } catch (error) {
+      res
+        .status(500)
+        .json({ success: false, message: "댓글 기본정보 조회 오류" });
+    }
+  }
+
+  // 단일 댓글 조회 (선택적 인증) - 상단 고정 표시용
+  static async getCommentById(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const { commentId } = req.params as { commentId: string };
+      const userId = req.user?.id;
+      if (!commentId) {
+        res
+          .status(400)
+          .json({ success: false, message: "댓글 ID가 필요합니다." });
+        return;
+      }
+      const comment = await CommentModel.findById(commentId);
+      if (!comment) {
+        res
+          .status(404)
+          .json({ success: false, message: "댓글을 찾을 수 없습니다." });
+        return;
+      }
+      const likeCount = await LikeModel.getCount(commentId, "comment");
+      let isLiked = false;
+      if (userId) {
+        isLiked = await LikeModel.isLiked(userId, commentId, "comment");
+      }
+      res.json({
+        success: true,
+        data: { ...comment, like_count: likeCount, is_liked: isLiked },
+      });
+    } catch (error) {
+      res
+        .status(500)
+        .json({ success: false, message: "댓글 조회 중 오류가 발생했습니다." });
+    }
+  }
+
+  // 특정 댓글이 몇 번째 페이지에 있는지 계산 (루트 댓글 기준, ASC 정렬)
+  static async getCommentPage(req: Request, res: Response): Promise<void> {
+    try {
+      const { commentId } = req.params as { commentId: string };
+      const limit = parseInt((req.query.limit as string) || "20", 10);
+      if (!commentId) {
+        res
+          .status(400)
+          .json({ success: false, message: "댓글 ID가 필요합니다." });
+        return;
+      }
+      const comment = await CommentModel.findById(commentId);
+      if (!comment) {
+        res
+          .status(404)
+          .json({ success: false, message: "댓글을 찾을 수 없습니다." });
+        return;
+      }
+
+      // 댓글의 위치 계산: 동일 포스트의 루트 댓글 중 생성일 ASC에서 몇 번째인지
+      // created_at 같을 가능성 낮으나, 같더라도 해당 시점까지 포함(<=)하여 페이지 계산
+      const db = await (await import("../config/database")).pool.connect();
+      try {
+        const posRes = await db.query(
+          `WITH target AS (
+             SELECT id, post_id, created_at
+             FROM comments
+             WHERE id = $1
+           )
+           SELECT COUNT(*) AS position
+           FROM comments c, target t
+           WHERE c.post_id = t.post_id
+             AND c.parent_id IS NULL
+             AND c.created_at <= t.created_at`,
+          [commentId]
+        );
+        const position = parseInt(posRes.rows?.[0]?.position || "1", 10);
+        const page = Math.max(1, Math.ceil(position / Math.max(1, limit)));
+        res.json({
+          success: true,
+          data: { position, page, limit, post_id: comment.post_id },
+        });
+      } finally {
+        db.release();
+      }
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: "댓글 페이지 계산 중 오류가 발생했습니다.",
+      });
+    }
+  }
+
   // 댓글 수정
   static async updateComment(
     req: AuthenticatedRequest,
@@ -186,6 +328,12 @@ export class CommentsController {
         user_id,
         content.trim()
       );
+
+      await NotificationsController.processCommentMentionsOnUpdate({
+        commentId,
+        authorUserId: user_id!,
+        content,
+      });
 
       res.status(200).json({
         success: true,
@@ -335,6 +483,20 @@ export class CommentsController {
           target_id: commentId,
           target_type: "comment",
         });
+
+        // 알림: 내 댓글에 좋아요가 눌렸을 때 (자기 자신 제외)
+        if (comment.user_id && comment.user_id !== userId) {
+          try {
+            await NotificationModel.createManyIfNotExists([
+              {
+                user_id: comment.user_id,
+                type: "comment_liked",
+                from_user_id: userId,
+                target_id: commentId,
+              },
+            ]);
+          } catch (e) {}
+        }
       }
 
       // 좋아요 수 조회
