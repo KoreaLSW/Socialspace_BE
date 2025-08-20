@@ -38,7 +38,9 @@ app.use(
 );
 
 // 미들웨어
-app.use(express.json());
+// 본문 크기 제한 상향 (Base64 이미지 업로드 대응)
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser()); // 🔧 쿠키 파서 미들웨어 추가
 
 // 라우트 설정

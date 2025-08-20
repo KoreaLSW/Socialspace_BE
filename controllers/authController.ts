@@ -200,7 +200,7 @@ export const updateProfile = async (
 ) => {
   try {
     const userId = req.user?.id;
-    const { nickname, bio, visibility } = req.body;
+    const { nickname, bio, visibility, profileImage } = req.body;
 
     if (!userId) {
       res.status(401).json({
@@ -215,6 +215,8 @@ export const updateProfile = async (
     if (nickname !== undefined) updateData.nickname = nickname;
     if (bio !== undefined) updateData.bio = bio;
     if (visibility !== undefined) updateData.visibility = visibility;
+    if (profileImage !== undefined)
+      (updateData as any).profileImage = profileImage;
 
     // 업데이트 실행
     const user = await UserModel.update(userId, updateData);

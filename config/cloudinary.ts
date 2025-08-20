@@ -187,4 +187,95 @@ export const generateThumbnail = (url: string): string => {
   });
 };
 
+// 프로필 이미지 업로드 함수 (users 폴더에 저장)
+export const uploadProfileImage = async (
+  file: Express.Multer.File,
+  userId: string
+) => {
+  try {
+    // Cloudinary 설정 확인
+    if (
+      !process.env.CLOUDINARY_CLOUD_NAME ||
+      !process.env.CLOUDINARY_API_KEY ||
+      !process.env.CLOUDINARY_API_SECRET
+    ) {
+      console.error("🔴 Cloudinary 환경 변수가 설정되지 않았습니다.");
+      throw new Error("Cloudinary 설정이 누락되었습니다.");
+    }
+
+    console.log("🔍 프로필 이미지 업로드 설정:", {
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY ? "설정됨" : "누락",
+      api_secret: process.env.CLOUDINARY_API_SECRET ? "설정됨" : "누락",
+      userId,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+    });
+
+    // Base64 데이터 URL 형식으로 변환
+    const base64Data = `data:${file.mimetype};base64,${file.buffer.toString(
+      "base64"
+    )}`;
+
+    // users 폴더 안에 사용자 ID 폴더를 만들어 저장
+    const folder = `socialspace/users/${userId}`;
+
+    const result = await cloudinary.uploader.upload(base64Data, {
+      resource_type: "image",
+      folder: folder,
+      // PNG로 저장하여 투명 배경 유지
+      format: "png",
+      quality: "auto",
+      fetch_format: "auto",
+    });
+
+    console.log("✅ 프로필 이미지 업로드 성공:", {
+      public_id: result.public_id,
+      url: result.secure_url,
+      folder,
+    });
+
+    return {
+      url: result.secure_url,
+      public_id: result.public_id,
+    };
+  } catch (error) {
+    console.error("🔴 프로필 이미지 업로드 상세 오류:", error);
+    log("ERROR", "프로필 이미지 업로드 실패", error);
+    throw new Error(
+      `프로필 이미지 업로드에 실패했습니다: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`
+    );
+  }
+};
+
+// Base64 프로필 이미지 업로드 함수
+export const uploadBase64ProfileImage = async (
+  base64Data: string,
+  userId: string
+) => {
+  try {
+    // users 폴더 안에 사용자 ID 폴더를 만들어 저장
+    const folder = `socialspace/users/${userId}`;
+
+    const result = await cloudinary.uploader.upload(base64Data, {
+      resource_type: "image",
+      folder: folder,
+      // PNG로 저장하여 투명 배경 유지
+      format: "png",
+      quality: "auto",
+      fetch_format: "auto",
+    });
+
+    return {
+      url: result.secure_url,
+      public_id: result.public_id,
+    };
+  } catch (error) {
+    log("ERROR", "Base64 프로필 이미지 업로드 실패", error);
+    throw new Error("프로필 이미지 업로드에 실패했습니다.");
+  }
+};
+
 export default cloudinary;
