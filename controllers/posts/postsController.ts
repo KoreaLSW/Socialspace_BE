@@ -9,6 +9,10 @@ import { log } from "../../utils/logger";
 import { AuthenticatedRequest } from "../../middleware/auth";
 import { pool } from "../../config/database";
 import { NotificationModel } from "../../models/Notification";
+import { PostViewModel } from "../../models/PostView";
+import { FollowModel } from "../../models/Follow";
+import { deleteMultipleImages } from "../../config/cloudinary";
+import { getClientIp } from "../../utils/ip";
 
 export class PostsController {
   // 게시글 생성
@@ -128,6 +132,14 @@ export class PostsController {
           // 댓글 수 가져오기
           const commentCount = await CommentModel.getCommentCount(post.id);
 
+          // view_count 조회
+          let viewCount: number | undefined = undefined;
+          try {
+            viewCount = await PostViewModel.getViewCount(post.id);
+          } catch (e) {
+            log("WARN", "view_count 조회 경고", e);
+          }
+
           // 조회수 비공개 처리
           let filteredPost: any = {
             ...post,
@@ -136,9 +148,10 @@ export class PostsController {
             like_count: likeCount,
             is_liked: isLiked,
             comment_count: commentCount,
+            view_count: viewCount,
           };
           if (post.hide_views) {
-            delete filteredPost.views;
+            delete filteredPost.view_count;
           }
           return filteredPost;
         })
@@ -167,11 +180,32 @@ export class PostsController {
   static async getPost(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const userId = (req as any).user?.id;
+      const userId = (req as any).user?.id as string | undefined;
 
       const post = await PostModel.findById(id);
       if (!post) {
         res.status(404).json({ error: "게시글을 찾을 수 없습니다." });
+        return;
+      }
+
+      // 가시성 접근 제어
+      const isOwner = userId && post.user_id === userId;
+      let canView = false;
+      if (post.visibility === "public") {
+        canView = true;
+      } else if (post.visibility === "followers") {
+        const isFollowing = userId
+          ? await FollowModel.isFollowing(userId, post.user_id)
+          : false;
+        canView = !!isOwner || isFollowing;
+      } else if (post.visibility === "private") {
+        canView = !!isOwner;
+      }
+      if (!canView) {
+        res.status(403).json({
+          success: false,
+          message: "게시글을 볼 수 있는 권한이 없습니다.",
+        });
         return;
       }
 
@@ -187,6 +221,38 @@ export class PostsController {
       // 댓글 수 가져오기
       const commentCount = await CommentModel.getCommentCount(post.id);
 
+      // 조회 기록 남기기 (최초 1회만)
+      try {
+        if (userId) {
+          await PostViewModel.recordView({
+            post_id: post.id,
+            user_id: userId,
+            ip_address: null,
+            view_duration: 0,
+          });
+        } else {
+          const ip = getClientIp(req);
+          if (ip) {
+            await PostViewModel.recordView({
+              post_id: post.id,
+              user_id: null,
+              ip_address: ip,
+              view_duration: 0,
+            });
+          }
+        }
+      } catch (e) {
+        log("WARN", "조회 기록 처리 중 경고", e);
+      }
+
+      // view_count 계산
+      let viewCount: number | undefined = undefined;
+      try {
+        viewCount = await PostViewModel.getViewCount(post.id);
+      } catch (e) {
+        log("WARN", "view_count 계산 중 경고", e);
+      }
+
       // 조회수 비공개 처리
       let filteredPost: any = {
         ...post,
@@ -195,9 +261,10 @@ export class PostsController {
         like_count: likeCount,
         is_liked: isLiked,
         comment_count: commentCount,
+        view_count: viewCount,
       };
       if (post.hide_views) {
-        delete filteredPost.views;
+        delete filteredPost.view_count;
       }
 
       res.json({
@@ -267,12 +334,7 @@ export class PostsController {
       const updatedPost = await PostModel.update(id, updates);
 
       // 이미지 업데이트 (기존 이미지 삭제 후 새로 추가)
-      if (images && Array.isArray(images)) {
-        await PostImageModel.deleteByPostId(id);
-        if (images.length > 0) {
-          await PostImageModel.createMultiple(id, images);
-        }
-      }
+      // 이미지 업데이트는 이번 스펙에서 미지원 → 무시
 
       log("INFO", `게시글 수정 성공: ${id} by user ${userId}`);
 
@@ -314,7 +376,42 @@ export class PostsController {
         return;
       }
 
-      // 관련 데이터 삭제
+      // Cloudinary 이미지 먼저 삭제 시도
+      try {
+        const images = await PostImageModel.findByPostId(id);
+        const publicIds: string[] = [];
+        for (const img of images) {
+          const url = img?.image_url || "";
+          if (!url) continue;
+          try {
+            const u = new URL(url);
+            const segments = u.pathname.split("/");
+            const uploadIdx = segments.findIndex((p) => p === "upload");
+            if (uploadIdx >= 0) {
+              let after = segments.slice(uploadIdx + 1);
+              if (after[0]?.startsWith("v")) {
+                after = after.slice(1);
+              }
+              const joined = after.join("/");
+              const withoutExt = joined.replace(/\.[^/.]+$/, "");
+              if (withoutExt) publicIds.push(withoutExt);
+            }
+          } catch (e) {
+            // URL 파싱 실패는 무시
+          }
+        }
+        if (publicIds.length > 0) {
+          try {
+            await deleteMultipleImages(publicIds);
+          } catch (e) {
+            log("WARN", "Cloudinary 이미지 삭제 실패", e);
+          }
+        }
+      } catch (e) {
+        log("WARN", "게시글 이미지 조회/삭제 중 경고", e);
+      }
+
+      // 관련 데이터 삭제 (DB)
       await PostImageModel.deleteByPostId(id);
       await PostHashtagModel.deleteByPostId(id);
       await PostModel.delete(id);
@@ -338,10 +435,12 @@ export class PostsController {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
 
+      const viewerId = (req as any).user?.id as string | undefined;
       const { posts, total } = await PostModel.findByUserId(
         userId,
         page,
-        limit
+        limit,
+        viewerId
       );
 
       // 각 게시글의 이미지와 해시태그 정보 가져오기
@@ -446,6 +545,7 @@ export class PostsController {
       const { hashtagId } = req.params;
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
+      const viewerId = (req as any).user?.id as string | undefined;
 
       // 해시태그 존재 확인
       const hashtag = await HashtagModel.findById(hashtagId);
@@ -457,7 +557,8 @@ export class PostsController {
       const { posts, total } = await PostHashtagModel.getPostsByHashtagId(
         hashtagId,
         page,
-        limit
+        limit,
+        viewerId
       );
 
       // 각 게시글의 이미지와 해시태그 정보 가져오기
@@ -660,6 +761,125 @@ export class PostsController {
       res
         .status(500)
         .json({ success: false, message: "목록 조회 중 오류가 발생했습니다." });
+    }
+  }
+
+  // 사용자가 좋아요한 게시글 조회 (선택적 인증)
+  static async getUserLikedPosts(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req.params;
+      const page = parseInt((req.query.page as string) || "1", 10);
+      const limit = parseInt((req.query.limit as string) || "10", 10);
+
+      const client = await pool.connect();
+
+      const viewerId = (req as any).user?.id as string | undefined;
+      const params: any[] = [userId];
+      // viewer 기준으로 visibility 필터링
+      let visibilityWhere = " AND p.visibility = 'public'";
+      if (viewerId) {
+        visibilityWhere = `
+          AND (
+            p.visibility = 'public'
+            OR (p.visibility = 'followers' AND (
+              p.user_id = $2 OR EXISTS (
+                SELECT 1 FROM follows f
+                WHERE f.follower_id = $2 AND f.following_id = p.user_id AND f.is_accepted = true
+              )
+            ))
+            OR (p.visibility = 'private' AND p.user_id = $2)
+          )
+        `;
+        params.push(viewerId);
+      }
+
+      // 전체 개수 조회
+      const countQuery = `
+        SELECT COUNT(*) FROM likes l
+        JOIN posts p ON p.id = l.target_id
+        WHERE l.user_id = $1 AND l.target_type = 'post' ${visibilityWhere}
+      `;
+      const countResult = await client.query(countQuery, params);
+      const total = parseInt(countResult.rows[0]?.count || "0", 10);
+
+      const offset = (page - 1) * limit;
+      const selectQuery = `
+        SELECT p.*, u.username, u.nickname, u.profile_image
+        FROM likes l
+        JOIN posts p ON p.id = l.target_id
+        JOIN users u ON p.user_id = u.id
+        WHERE l.user_id = $1 AND l.target_type = 'post' ${visibilityWhere}
+        ORDER BY l.created_at DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `;
+      const result = await client.query(selectQuery, [
+        ...params,
+        limit,
+        offset,
+      ]);
+      client.release();
+
+      const rawPosts = result.rows.map((row) => ({
+        id: row.id,
+        user_id: row.user_id,
+        content: row.content,
+        thumbnail_url: row.thumbnail_url,
+        og_link: row.og_link,
+        visibility: row.visibility,
+        hide_likes: row.hide_likes,
+        hide_views: row.hide_views,
+        allow_comments: row.allow_comments,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        is_edited: row.is_edited,
+        author: {
+          id: row.user_id,
+          username: row.username,
+          nickname: row.nickname,
+          profileImage: row.profile_image,
+        },
+      }));
+
+      // 각 게시글의 이미지, 해시태그, 좋아요/댓글 수, is_liked 보강
+      const postsWithDetails = await Promise.all(
+        rawPosts.map(async (post: any) => {
+          const images = await PostImageModel.findByPostId(post.id);
+          const hashtags = await PostHashtagModel.getHashtagsByPostId(post.id);
+          const currentUserId = (req as any).user?.id;
+          const likeCount = await LikeModel.getCount(post.id, "post");
+          const isLiked = currentUserId
+            ? await LikeModel.isLiked(currentUserId, post.id, "post")
+            : false;
+          const commentCount = await CommentModel.getCommentCount(post.id);
+
+          return {
+            ...post,
+            images,
+            hashtags,
+            like_count: likeCount,
+            is_liked: isLiked,
+            comment_count: commentCount,
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        data: postsWithDetails,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+        message: "사용자가 좋아요한 게시글을 성공적으로 조회했습니다.",
+      });
+    } catch (error) {
+      log("ERROR", "사용자 좋아요 게시글 조회 실패", error);
+      res.status(500).json({
+        success: false,
+        message: "사용자 좋아요 게시글 조회 중 오류가 발생했습니다.",
+      });
     }
   }
 }

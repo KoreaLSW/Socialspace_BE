@@ -14,7 +14,7 @@ export class CommentsController {
     res: Response
   ): Promise<void> {
     try {
-      const { post_id, content, parent_id } = req.body;
+      const { post_id, content, parent_id, reply_to_comment_id } = req.body;
       const user_id = req.user?.id;
 
       if (!user_id) {
@@ -46,6 +46,7 @@ export class CommentsController {
         user_id,
         content: content.trim(),
         parent_id: parent_id || undefined,
+        reply_to_comment_id: reply_to_comment_id || undefined,
       };
 
       const comment = await CommentModel.create(commentData);
@@ -143,6 +144,8 @@ export class CommentsController {
     try {
       const { commentId } = req.params;
       const user_id = req.user?.id;
+      const page = parseInt((req.query.page as string) || "1", 10);
+      const limit = parseInt((req.query.limit as string) || "10", 10);
 
       if (!commentId) {
         res.status(400).json({
@@ -152,8 +155,10 @@ export class CommentsController {
         return;
       }
 
-      const replies = await CommentModel.findRepliesByParentId(
+      const { replies, total } = await CommentModel.findRepliesByParentIdPaged(
         commentId,
+        page,
+        limit,
         user_id
       );
 
@@ -161,6 +166,12 @@ export class CommentsController {
         success: true,
         message: "대댓글 목록을 가져왔습니다.",
         data: replies,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
       });
     } catch (error) {
       log("ERROR", "대댓글 조회 오류", error);

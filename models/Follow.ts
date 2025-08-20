@@ -17,7 +17,7 @@ export class FollowModel {
     try {
       const client = await pool.connect();
       const result = await client.query(
-        "SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2",
+        "SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2 AND is_accepted = true",
         [followerId, followingId]
       );
       client.release();
@@ -60,6 +60,24 @@ export class FollowModel {
       return result.rows.length > 0;
     } catch (error) {
       log("ERROR", "isBlocked 실패", error);
+      throw error;
+    }
+  }
+
+  static async getAcceptedFollowingIds(
+    followerId: string
+  ): Promise<Set<string>> {
+    try {
+      const client = await pool.connect();
+      const result = await client.query(
+        "SELECT following_id FROM follows WHERE follower_id = $1 AND is_accepted = true",
+        [followerId]
+      );
+      client.release();
+      const ids = result.rows.map((r) => r.following_id as string);
+      return new Set(ids);
+    } catch (error) {
+      log("ERROR", "getAcceptedFollowingIds 실패", error);
       throw error;
     }
   }

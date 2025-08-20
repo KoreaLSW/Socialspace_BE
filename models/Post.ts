@@ -14,6 +14,7 @@ export interface Post {
   allow_comments: boolean;
   created_at: Date;
   updated_at: Date;
+  is_edited?: boolean;
   author?: {
     id: string;
     username: string;
@@ -98,32 +99,66 @@ export class PostModel {
   }
 
   // 사용자 ID로 게시글 목록 조회
+  // 오버로드: viewerId 없음
+  static async findByUserId(
+    userId: string,
+    page?: number,
+    limit?: number
+  ): Promise<{ posts: Post[]; total: number }>;
+  // 오버로드: viewerId 포함
+  static async findByUserId(
+    userId: string,
+    page: number,
+    limit: number,
+    viewerId?: string
+  ): Promise<{ posts: Post[]; total: number }>;
   static async findByUserId(
     userId: string,
     page: number = 1,
-    limit: number = 10
+    limit: number = 10,
+    viewerId?: string
   ): Promise<{ posts: Post[]; total: number }> {
     try {
       const client = await pool.connect();
       const offset = (page - 1) * limit;
 
+      const isOwner = viewerId === userId;
+      const params: any[] = [userId];
+      let visibilityWhere = "";
+      if (!isOwner) {
+        visibilityWhere = `
+          AND (
+            p.visibility = 'public'
+            OR (
+              p.visibility = 'followers' AND EXISTS (
+                SELECT 1 FROM follows f
+                WHERE f.follower_id = $2 AND f.following_id = p.user_id AND f.is_accepted = true
+              )
+            )
+          )
+        `;
+        params.push(viewerId || "");
+      }
+
       // 전체 개수 조회
-      const countResult = await client.query(
-        "SELECT COUNT(*) FROM posts WHERE user_id = $1",
-        [userId]
-      );
+      const countQuery = `SELECT COUNT(*) FROM posts p WHERE p.user_id = $1 ${visibilityWhere}`;
+      const countResult = await client.query(countQuery, params);
       const total = parseInt(countResult.rows[0].count);
 
       // 게시글 조회 (사용자 정보 포함)
-      const result = await client.query(
-        `SELECT p.*, u.username, u.nickname, u.profile_image 
-         FROM posts p 
-         JOIN users u ON p.user_id = u.id 
-         WHERE p.user_id = $1 
-         ORDER BY p.created_at DESC 
-         LIMIT $2 OFFSET $3`,
-        [userId, limit, offset]
-      );
+      const selectQuery = `
+        SELECT p.*, u.username, u.nickname, u.profile_image
+        FROM posts p
+        JOIN users u ON p.user_id = u.id
+        WHERE p.user_id = $1 ${visibilityWhere}
+        ORDER BY p.created_at DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `;
+      const result = await client.query(selectQuery, [
+        ...params,
+        limit,
+        offset,
+      ]);
 
       client.release();
 
@@ -245,9 +280,10 @@ export class PostModel {
         queryParams.push(updates.allow_comments);
       }
 
-      // updated_at 항상 업데이트
+      // updated_at 항상 업데이트 + is_edited 표시
       updateFields.push(`updated_at = $${paramIndex++}`);
       queryParams.push(currentTime);
+      updateFields.push(`is_edited = true`);
 
       // WHERE 조건의 id 파라미터
       queryParams.push(id);
@@ -333,6 +369,7 @@ export class PostModel {
       allow_comments: row.allow_comments,
       created_at: row.created_at,
       updated_at: row.updated_at,
+      is_edited: row.is_edited,
       author: {
         id: row.user_id,
         username: row.username,

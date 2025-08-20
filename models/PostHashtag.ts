@@ -123,35 +123,71 @@ export class PostHashtagModel {
   }
 
   // 해시태그로 게시글 조회 (JOIN)
+  // 오버로드 시그니처 (viewerId 없음)
+  static async getPostsByHashtagId(
+    hashtagId: string,
+    page?: number,
+    limit?: number
+  ): Promise<{ posts: any[]; total: number }>;
+  // 오버로드 시그니처 (viewerId 포함)
+  static async getPostsByHashtagId(
+    hashtagId: string,
+    page: number,
+    limit: number,
+    viewerId?: string
+  ): Promise<{ posts: any[]; total: number }>;
   static async getPostsByHashtagId(
     hashtagId: string,
     page: number = 1,
-    limit: number = 10
+    limit: number = 10,
+    viewerId?: string
   ): Promise<{ posts: any[]; total: number }> {
     try {
       const client = await pool.connect();
       const offset = (page - 1) * limit;
 
+      const params: any[] = [hashtagId];
+      let visibilityWhere = " AND p.visibility = 'public'";
+      if (viewerId) {
+        visibilityWhere = `
+          AND (
+            p.visibility = 'public'
+            OR (p.visibility = 'followers' AND (
+              p.user_id = $2 OR EXISTS (
+                SELECT 1 FROM follows f
+                WHERE f.follower_id = $2 AND f.following_id = p.user_id AND f.is_accepted = true
+              )
+            ))
+            OR (p.visibility = 'private' AND p.user_id = $2)
+          )
+        `;
+        params.push(viewerId);
+      }
+
       // 전체 개수 조회
-      const countResult = await client.query(
-        `SELECT COUNT(*) FROM posts p
-         INNER JOIN post_hashtags ph ON p.id = ph.post_id
-         WHERE ph.hashtag_id = $1`,
-        [hashtagId]
-      );
+      const countQuery = `
+        SELECT COUNT(*) FROM posts p
+        INNER JOIN post_hashtags ph ON p.id = ph.post_id
+        WHERE ph.hashtag_id = $1 ${visibilityWhere}
+      `;
+      const countResult = await client.query(countQuery, params);
       const total = parseInt(countResult.rows[0].count);
 
       // 게시글 조회
-      const result = await client.query(
-        `SELECT p.*, u.username, u.nickname, u.profile_image
-         FROM posts p
-         INNER JOIN post_hashtags ph ON p.id = ph.post_id
-         INNER JOIN users u ON p.user_id = u.id
-         WHERE ph.hashtag_id = $1
-         ORDER BY p.created_at DESC
-         LIMIT $2 OFFSET $3`,
-        [hashtagId, limit, offset]
-      );
+      const selectQuery = `
+        SELECT p.*, u.username, u.nickname, u.profile_image
+        FROM posts p
+        INNER JOIN post_hashtags ph ON p.id = ph.post_id
+        INNER JOIN users u ON p.user_id = u.id
+        WHERE ph.hashtag_id = $1 ${visibilityWhere}
+        ORDER BY p.created_at DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `;
+      const result = await client.query(selectQuery, [
+        ...params,
+        limit,
+        offset,
+      ]);
 
       client.release();
 

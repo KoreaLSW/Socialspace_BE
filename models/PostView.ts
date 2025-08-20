@@ -1,18 +1,18 @@
-import { pool } from "../../config/database";
-import { log } from "../../utils/logger";
+import { pool } from "../config/database";
+import { log } from "../utils/logger";
 
 export interface PostView {
   post_id: string;
-  user_id: string;
-  ip_address: string;
+  user_id: string | null;
+  ip_address: string | null;
   viewed_at: Date;
   view_duration: number;
 }
 
 export interface CreatePostViewData {
   post_id: string;
-  user_id: string;
-  ip_address: string;
+  user_id: string | null;
+  ip_address: string | null;
   view_duration?: number;
 }
 
@@ -29,20 +29,36 @@ export class PostViewModel {
     try {
       const client = await pool.connect();
 
-      const result = await client.query(
-        `INSERT INTO post_views (post_id, user_id, ip_address, view_duration, viewed_at) 
-         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP) 
-         ON CONFLICT (post_id, user_id, ip_address) DO UPDATE SET 
-           view_duration = GREATEST(post_views.view_duration, $4),
-           viewed_at = CURRENT_TIMESTAMP
-         RETURNING *`,
-        [
-          viewData.post_id,
-          viewData.user_id,
-          viewData.ip_address,
-          viewData.view_duration || 0,
-        ]
-      );
+      let result;
+      const viewDuration = viewData.view_duration || 0;
+
+      if (viewData.user_id) {
+        // 로그인 사용자: (post_id, user_id) 기준 1회만 기록
+        result = await client.query(
+          `INSERT INTO post_views (post_id, user_id, ip_address, view_duration, viewed_at)
+           VALUES ($1, $2, NULL, $3, CURRENT_TIMESTAMP)
+           ON CONFLICT ON CONSTRAINT uq_post_views_post_user DO UPDATE SET
+             view_duration = GREATEST(post_views.view_duration, EXCLUDED.view_duration),
+             viewed_at = CURRENT_TIMESTAMP
+           RETURNING *`,
+          [viewData.post_id, viewData.user_id, viewDuration]
+        );
+      } else if (viewData.ip_address) {
+        // 비로그인 사용자: (post_id, ip_address) 기준 1회만 기록
+        result = await client.query(
+          `INSERT INTO post_views (post_id, user_id, ip_address, view_duration, viewed_at)
+           VALUES ($1, NULL, $2, $3, CURRENT_TIMESTAMP)
+           ON CONFLICT ON CONSTRAINT uq_post_views_post_ip DO UPDATE SET
+             view_duration = GREATEST(post_views.view_duration, EXCLUDED.view_duration),
+             viewed_at = CURRENT_TIMESTAMP
+           RETURNING *`,
+          [viewData.post_id, viewData.ip_address, viewDuration]
+        );
+      } else {
+        // 사용자 ID와 IP 모두 없는 경우는 기록하지 않음
+        client.release();
+        throw new Error("user_id와 ip_address가 모두 비어 있습니다.");
+      }
 
       client.release();
 
@@ -84,6 +100,23 @@ export class PostViewModel {
       };
     } catch (error) {
       log("ERROR", "조회 통계 조회 실패", error);
+      throw error;
+    }
+  }
+
+  // 게시글별 조회수(행 수) 반환
+  static async getViewCount(postId: string): Promise<number> {
+    try {
+      const client = await pool.connect();
+      const result = await client.query(
+        "SELECT COUNT(*)::int AS cnt FROM post_views WHERE post_id = $1",
+        [postId]
+      );
+      client.release();
+      const cnt = result.rows?.[0]?.cnt;
+      return typeof cnt === "number" ? cnt : parseInt(cnt || "0", 10);
+    } catch (error) {
+      log("ERROR", "view_count 조회 실패", error);
       throw error;
     }
   }

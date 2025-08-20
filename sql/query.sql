@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS public.posts
     hide_likes boolean DEFAULT false,
     hide_views boolean DEFAULT false,
     allow_comments boolean DEFAULT true,
+    is_edited boolean DEFAULT false,
     CONSTRAINT posts_pkey PRIMARY KEY (id),
     CONSTRAINT posts_user_id_fkey FOREIGN KEY (user_id)
         REFERENCES public.users (id) MATCH SIMPLE
@@ -140,7 +141,8 @@ COMMENT ON COLUMN public.posts.hide_views
     IS '조회수 숨기기 여부';
 COMMENT ON COLUMN public.posts.allow_comments
     IS '댓글 허용 여부';
-
+COMMENT ON COLUMN public.posts.is_edited
+    IS '게시글 수정 여부';
 -- POST IMAGES
 CREATE TABLE IF NOT EXISTS public.post_images
 (
@@ -437,10 +439,14 @@ COMMENT ON COLUMN public.notifications.is_read
 CREATE TABLE IF NOT EXISTS public.post_views
 (
     post_id uuid NOT NULL,
-    user_id uuid NOT NULL,
-    ip_address inet NOT NULL,
+    user_id uuid,
+    ip_address inet,
     viewed_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT post_views_pkey PRIMARY KEY (post_id, user_id, ip_address),
+    view_duration integer DEFAULT 0,
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    CONSTRAINT post_views_pkey PRIMARY KEY (id),
+    CONSTRAINT uq_post_views_post_ip UNIQUE (post_id, ip_address),
+    CONSTRAINT uq_post_views_post_user UNIQUE (post_id, user_id),
     CONSTRAINT post_views_post_id_fkey FOREIGN KEY (post_id)
         REFERENCES public.posts (id) MATCH SIMPLE
         ON UPDATE NO ACTION
@@ -463,16 +469,12 @@ COMMENT ON COLUMN public.post_views.ip_address
     IS '비회원 조회자의 IP 주소';
 COMMENT ON COLUMN public.post_views.viewed_at
     IS '게시글이 조회된 시간';
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_post_ip_view
+COMMENT ON COLUMN public.post_views.view_duration
+    IS '게시글을 본 시간(초)';
+CREATE INDEX IF NOT EXISTS idx_post_views_post
     ON public.post_views USING btree
-    (post_id ASC NULLS LAST, ip_address ASC NULLS LAST)
-    TABLESPACE pg_default
-    WHERE ip_address IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_post_user_view
-    ON public.post_views USING btree
-    (post_id ASC NULLS LAST, user_id ASC NULLS LAST)
-    TABLESPACE pg_default
-    WHERE user_id IS NOT NULL;
+    (post_id ASC NULLS LAST)
+    TABLESPACE pg_default;
 
 -- 댓글 멘션 테이블
 CREATE TABLE IF NOT EXISTS public.comment_mentions

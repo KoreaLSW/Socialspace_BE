@@ -12,6 +12,9 @@ import routes from "./routes";
 const app = express();
 const port = process.env.PORT || 4000;
 
+// 프록시 환경에서 실제 클라이언트 IP 추출을 위해 신뢰 프록시 설정
+app.set("trust proxy", true);
+
 // 🔧 CORS 설정 추가
 app.use(
   cors({

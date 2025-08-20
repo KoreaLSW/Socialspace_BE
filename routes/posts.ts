@@ -40,6 +40,12 @@ router.get("/", optionalAuth, PostsController.getPosts);
 
 // 사용자별 게시글 조회 (선택적 인증)
 router.get("/user/:userId", optionalAuth, PostsController.getUserPosts);
+// 사용자가 좋아요한 게시글 조회 (선택적 인증)
+router.get(
+  "/user/:userId/likes",
+  optionalAuth,
+  PostsController.getUserLikedPosts
+);
 
 // 해시태그별 게시글 조회 (선택적 인증)
 router.get(

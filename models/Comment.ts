@@ -7,9 +7,11 @@ export interface Comment {
   post_id: string;
   user_id: string;
   parent_id?: string;
+  reply_to_comment_id?: string | null;
   content: string;
   is_edited: boolean;
   created_at: Date;
+  reply_count?: number;
   author?: {
     id: string;
     username: string;
@@ -26,6 +28,7 @@ export interface CreateCommentData {
   user_id: string;
   content: string;
   parent_id?: string;
+  reply_to_comment_id?: string;
 }
 
 export class CommentModel {
@@ -36,13 +39,14 @@ export class CommentModel {
       const currentTime = getKoreanTime();
 
       const result = await client.query(
-        `INSERT INTO comments (post_id, user_id, parent_id, content, created_at) 
-         VALUES ($1, $2, $3, $4, $5) 
+        `INSERT INTO comments (post_id, user_id, parent_id, reply_to_comment_id, content, created_at) 
+         VALUES ($1, $2, $3, $4, $5, $6) 
          RETURNING *`,
         [
           commentData.post_id,
           commentData.user_id,
           commentData.parent_id || null,
+          commentData.reply_to_comment_id || null,
           commentData.content,
           currentTime,
         ]
@@ -181,6 +185,60 @@ export class CommentModel {
     }
   }
 
+  // 댓글의 대댓글 조회 (페이지네이션)
+  static async findRepliesByParentIdPaged(
+    parentId: string,
+    page: number = 1,
+    limit: number = 10,
+    currentUserId?: string
+  ): Promise<{ replies: Comment[]; total: number }> {
+    try {
+      const client = await pool.connect();
+
+      // 전체 대댓글 수 조회
+      const countQuery = `SELECT COUNT(*) as count FROM comments WHERE parent_id = $1`;
+      const countResult = await client.query(countQuery, [parentId]);
+      const total = parseInt(countResult.rows[0].count, 10) || 0;
+
+      const offset = (page - 1) * limit;
+
+      // 페이지네이션된 대댓글 목록 조회
+      const listQuery = `
+        SELECT 
+          c.*,
+          u.username as author_username,
+          u.nickname as author_nickname,
+          u.profile_image as author_profile_image,
+          COUNT(l.id) as like_count,
+          CASE WHEN ul.user_id IS NOT NULL THEN true ELSE false END as is_liked
+        FROM comments c
+        JOIN users u ON c.user_id = u.id
+        LEFT JOIN likes l ON l.target_id = c.id AND l.target_type = 'comment'
+        LEFT JOIN likes ul ON ul.target_id = c.id AND ul.target_type = 'comment' AND ul.user_id = $4
+        WHERE c.parent_id = $1
+        GROUP BY c.id, u.username, u.nickname, u.profile_image, ul.user_id
+        ORDER BY c.created_at ASC
+        LIMIT $2 OFFSET $3
+      `;
+
+      const listResult = await client.query(listQuery, [
+        parentId,
+        limit,
+        offset,
+        currentUserId || null,
+      ]);
+      client.release();
+
+      const replies = listResult.rows.map((row) =>
+        this.mapRowToCommentWithAuthor(row)
+      );
+      return { replies, total };
+    } catch (error) {
+      log("ERROR", "대댓글 페이지네이션 조회 실패", error);
+      throw error;
+    }
+  }
+
   // 댓글 수정
   static async update(
     commentId: string,
@@ -286,9 +344,16 @@ export class CommentModel {
       post_id: row.post_id,
       user_id: row.user_id,
       parent_id: row.parent_id,
+      reply_to_comment_id: row.reply_to_comment_id ?? null,
       content: row.content,
       is_edited: row.is_edited,
       created_at: new Date(row.created_at),
+      reply_count:
+        typeof row.reply_count === "number"
+          ? row.reply_count
+          : row.reply_count
+          ? parseInt(row.reply_count, 10)
+          : undefined,
     };
   }
 
@@ -299,9 +364,16 @@ export class CommentModel {
       post_id: row.post_id,
       user_id: row.user_id,
       parent_id: row.parent_id,
+      reply_to_comment_id: row.reply_to_comment_id ?? null,
       content: row.content,
       is_edited: row.is_edited,
       created_at: new Date(row.created_at),
+      reply_count:
+        typeof row.reply_count === "number"
+          ? row.reply_count
+          : row.reply_count
+          ? parseInt(row.reply_count, 10)
+          : undefined,
       author: {
         id: row.user_id,
         username: row.author_username,
