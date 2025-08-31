@@ -4,7 +4,7 @@
 -- USERS
 CREATE TABLE IF NOT EXISTS public.users
 (
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    id uuid NOT NULL,
     email character varying(255) COLLATE pg_catalog."default" NOT NULL,
     username character varying(50) COLLATE pg_catalog."default" NOT NULL,
     nickname character varying(50) COLLATE pg_catalog."default",
@@ -14,10 +14,13 @@ CREATE TABLE IF NOT EXISTS public.users
     role character varying(20) COLLATE pg_catalog."default" DEFAULT 'user'::character varying,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    is_custom_profile_image boolean DEFAULT false,
+    follow_approval_mode character varying(20) COLLATE pg_catalog."default" DEFAULT 'auto'::character varying,
     CONSTRAINT users_pkey PRIMARY KEY (id),
     CONSTRAINT users_email_key UNIQUE (email),
     CONSTRAINT users_username_key UNIQUE (username)
 )
+
 TABLESPACE pg_default;
 ALTER TABLE IF EXISTS public.users
     OWNER to socialspace_user;
@@ -41,6 +44,10 @@ COMMENT ON COLUMN public.users.role
     IS '사용자 권한: admin, manager, user, banned';
 COMMENT ON COLUMN public.users.created_at
     IS '계정 생성일시';
+COMMENT ON COLUMN public.users.is_custom_profile_image
+    IS '사용자가 직접 설정한 프로필 이미지 여부 (true: 사용자 설정, false: 구글 기본 이미지)';
+COMMENT ON COLUMN public.users.follow_approval_mode
+    IS '팔로우 승인 방식 (auto: 자동 승인, manual: 수동 승인)';
 
 -- 차단 테이블
 CREATE TABLE IF NOT EXISTS public.user_blocks

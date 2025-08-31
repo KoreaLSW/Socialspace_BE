@@ -18,7 +18,10 @@ export interface User {
   nickname?: string;
   bio?: string;
   profileImage?: string;
+  isCustomProfileImage: boolean; // 사용자가 직접 설정한 프로필 이미지인지 여부
   visibility: string;
+  followApprovalMode?: string; // 팔로우 승인 방식 ('auto' | 'manual')
+  showMutualFollow?: boolean; // 상호 팔로우 표시 여부
   role: string;
   emailVerified: boolean;
   createdAt: Date;
@@ -107,8 +110,8 @@ export class UserModel {
       const koreanTime = getKoreanTime();
 
       const result = await client.query(
-        `INSERT INTO users (id, email, username, nickname, bio, profile_image, created_at, updated_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+        `INSERT INTO users (id, email, username, nickname, bio, profile_image, is_custom_profile_image, created_at, updated_at) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
          RETURNING *`,
         [
           userData.googleId, // Google ID를 직접 id로 사용
@@ -117,6 +120,7 @@ export class UserModel {
           userData.name, // nickname으로 사용
           "", // bio 기본값으로 빈 문자열
           userData.picture || null,
+          false, // is_custom_profile_image 기본값은 false (구글 기본 이미지)
           koreanTime, // 한국시간으로 created_at 설정
           koreanTime, // 한국시간으로 updated_at 설정
         ]
@@ -162,9 +166,21 @@ export class UserModel {
         setParts.push(`profile_image = $${paramIndex++}`);
         values.push(updates.profileImage);
       }
+      if (updates.isCustomProfileImage !== undefined) {
+        setParts.push(`is_custom_profile_image = $${paramIndex++}`);
+        values.push(updates.isCustomProfileImage);
+      }
       if (updates.visibility !== undefined) {
         setParts.push(`visibility = $${paramIndex++}`);
         values.push(updates.visibility);
+      }
+      if (updates.followApprovalMode !== undefined) {
+        setParts.push(`follow_approval_mode = $${paramIndex++}`);
+        values.push(updates.followApprovalMode);
+      }
+      if (updates.showMutualFollow !== undefined) {
+        setParts.push(`show_mutual_follow = $${paramIndex++}`);
+        values.push(updates.showMutualFollow);
       }
 
       if (setParts.length === 0) {
@@ -297,7 +313,10 @@ export class UserModel {
       nickname: row.nickname,
       bio: row.bio,
       profileImage: row.profile_image,
+      isCustomProfileImage: row.is_custom_profile_image || false,
       visibility: row.visibility,
+      followApprovalMode: row.follow_approval_mode || "auto",
+      showMutualFollow: row.show_mutual_follow !== false, // 기본값 true
       role: row.role,
       emailVerified: row.email_verified,
       createdAt: new Date(row.created_at),

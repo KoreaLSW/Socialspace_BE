@@ -18,13 +18,12 @@ export const checkFollowStatus = async (
       return;
     }
 
-    const [isFollowing, isFavorite, isBlocked] = await Promise.all([
-      FollowModel.isFollowing(userId, targetUserId),
-      FollowModel.isFavorite(userId, targetUserId),
-      FollowModel.isBlocked(userId, targetUserId),
-    ]);
+    const data = await FollowModel.checkFollowStatus(userId, targetUserId);
 
-    res.json({ success: true, data: { isFollowing, isFavorite, isBlocked } });
+    res.json({
+      success: true,
+      data,
+    });
   } catch (error) {
     log("ERROR", "팔로우 상태 확인 실패", error);
     res.status(500).json({
@@ -54,12 +53,10 @@ export const toggleFollow = async (
       return;
     }
 
-    const { isFollowing } = await FollowModel.toggleFollow(
-      userId,
-      targetUserId
-    );
+    const result = await FollowModel.toggleFollow(userId, targetUserId);
+
     // 알림: 상대방을 팔로우하기 시작했을 때, 팔로우 받은 사용자에게 알림
-    if (isFollowing && userId !== targetUserId) {
+    if (result.isFollowing && userId !== targetUserId) {
       try {
         await NotificationModel.createManyIfNotExists([
           {
@@ -74,8 +71,12 @@ export const toggleFollow = async (
 
     res.json({
       success: true,
-      message: isFollowing ? "팔로우했습니다" : "팔로우를 취소했습니다",
-      data: { isFollowing },
+      message: result.isFollowing
+        ? "팔로우했습니다"
+        : result.isPending
+        ? "팔로우 요청을 보냈습니다"
+        : "팔로우를 취소했습니다",
+      data: result,
     });
   } catch (error) {
     log("ERROR", "팔로우/언팔로우 실패", error);
@@ -198,5 +199,34 @@ export const getFollowing = async (
     res
       .status(500)
       .json({ success: false, message: "팔로잉 목록 조회 중 오류" });
+  }
+};
+
+// 상호 팔로우 목록 조회
+export const getMutualFollows = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const { userId } = req.params as { userId: string };
+    const page = parseInt((req.query.page as string) || "1", 10);
+    const limit = parseInt((req.query.page as string) || "20", 10);
+
+    const { users, pagination } = await FollowModel.getMutualFollows(
+      userId,
+      page,
+      limit
+    );
+
+    res.json({
+      success: true,
+      data: users,
+      pagination,
+    });
+  } catch (error) {
+    log("ERROR", "상호 팔로우 목록 조회 실패", error);
+    res
+      .status(500)
+      .json({ success: false, message: "상호 팔로우 목록 조회 중 오류" });
   }
 };

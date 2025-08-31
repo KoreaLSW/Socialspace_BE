@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { UserModel, User, NextAuthGoogleUser } from "../models/User";
+import { FollowModel } from "../models/Follow";
 import { log } from "../utils/logger";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { pool } from "../config/database";
@@ -19,36 +20,14 @@ const generateUniqueUsername = async (email: string): Promise<string> => {
   return username;
 };
 
-// 팔로워 수 조회
+// 팔로워 수 조회 (Follow 모델 사용)
 const getFollowersCount = async (userId: string): Promise<number> => {
-  try {
-    const client = await pool.connect();
-    const result = await client.query(
-      "SELECT COUNT(*) as count FROM follows WHERE following_id = $1 AND is_accepted = true",
-      [userId]
-    );
-    client.release();
-    return parseInt(result.rows[0].count);
-  } catch (error) {
-    log("ERROR", "팔로워 수 조회 실패", error);
-    return 0;
-  }
+  return await FollowModel.getFollowersCount(userId);
 };
 
-// 팔로잉 수 조회
+// 팔로잉 수 조회 (Follow 모델 사용)
 const getFollowingCount = async (userId: string): Promise<number> => {
-  try {
-    const client = await pool.connect();
-    const result = await client.query(
-      "SELECT COUNT(*) as count FROM follows WHERE follower_id = $1 AND is_accepted = true",
-      [userId]
-    );
-    client.release();
-    return parseInt(result.rows[0].count);
-  } catch (error) {
-    log("ERROR", "팔로잉 수 조회 실패", error);
-    return 0;
-  }
+  return await FollowModel.getFollowingCount(userId);
 };
 
 // 게시물 수 조회
@@ -85,8 +64,8 @@ export const googleLogin = async (req: Request, res: Response) => {
     let user = await UserModel.findByEmail(email);
 
     if (user) {
-      // 프로필 이미지 업데이트 (변경된 경우)
-      if (image && user.profileImage !== image) {
+      // 프로필 이미지 업데이트 (사용자가 직접 설정한 이미지가 아닌 경우에만)
+      if (image && user.profileImage !== image && !user.isCustomProfileImage) {
         user.profileImage = image;
         await UserModel.update(user.id, { profileImage: image });
       }
@@ -114,7 +93,10 @@ export const googleLogin = async (req: Request, res: Response) => {
           nickname: user.nickname,
           bio: user.bio,
           profileImage: user.profileImage,
+          isCustomProfileImage: user.isCustomProfileImage,
           visibility: user.visibility,
+          followApprovalMode: user.followApprovalMode,
+          showMutualFollow: user.showMutualFollow,
           role: user.role,
           emailVerified: user.emailVerified,
           createdAt: user.createdAt,
@@ -174,6 +156,8 @@ export const getCurrentUser = async (
         bio: user.bio,
         profileImage: user.profileImage,
         visibility: user.visibility,
+        followApprovalMode: user.followApprovalMode,
+        showMutualFollow: user.showMutualFollow,
         role: user.role,
         emailVerified: user.emailVerified,
         createdAt: user.createdAt,
@@ -200,7 +184,15 @@ export const updateProfile = async (
 ) => {
   try {
     const userId = req.user?.id;
-    const { nickname, bio, visibility, profileImage } = req.body;
+    const {
+      nickname,
+      bio,
+      visibility,
+      profileImage,
+      isCustomProfileImage,
+      followApprovalMode,
+      showMutualFollow,
+    } = req.body;
 
     if (!userId) {
       res.status(401).json({
@@ -217,6 +209,12 @@ export const updateProfile = async (
     if (visibility !== undefined) updateData.visibility = visibility;
     if (profileImage !== undefined)
       (updateData as any).profileImage = profileImage;
+    if (isCustomProfileImage !== undefined)
+      updateData.isCustomProfileImage = isCustomProfileImage;
+    if (followApprovalMode !== undefined)
+      updateData.followApprovalMode = followApprovalMode;
+    if (showMutualFollow !== undefined)
+      updateData.showMutualFollow = showMutualFollow;
 
     // 업데이트 실행
     const user = await UserModel.update(userId, updateData);
@@ -240,7 +238,9 @@ export const updateProfile = async (
           nickname: user.nickname,
           bio: user.bio,
           profileImage: user.profileImage,
+          isCustomProfileImage: user.isCustomProfileImage,
           visibility: user.visibility,
+          followApprovalMode: user.followApprovalMode,
           role: user.role,
           emailVerified: user.emailVerified,
           createdAt: user.createdAt,
@@ -306,9 +306,13 @@ export const getRecommendedUsers = async (
 };
 
 // username으로 사용자 프로필 조회
-export const getUserProfileByUsername = async (req: Request, res: Response) => {
+export const getUserProfileByUsername = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
   try {
     const { username } = req.params;
+    const viewerId = req.user?.id;
 
     if (!username) {
       res.status(400).json({
@@ -328,6 +332,54 @@ export const getUserProfileByUsername = async (req: Request, res: Response) => {
       return;
     }
 
+    // 프로필 접근 권한 확인
+    const isOwner = viewerId === user.id;
+    let hasAccess = isOwner || user.visibility === "public";
+
+    if (user.visibility === "followers" && viewerId && !isOwner) {
+      // 팔로우 상태 확인
+      hasAccess = await FollowModel.isFollowing(viewerId, user.id);
+    }
+
+    // 디버깅 로그 추가
+    log("INFO", "프로필 접근 권한 확인", {
+      username,
+      viewerId,
+      userId: user.id,
+      visibility: user.visibility,
+      isOwner,
+      hasAccess,
+    });
+
+    if (!hasAccess) {
+      // 접근 제한 시에도 성공 응답으로 처리 (기본 프로필 정보 포함)
+      res.json({
+        success: true,
+        data: {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          nickname: user.nickname,
+          bio: user.bio,
+          profileImage: user.profileImage,
+          isCustomProfileImage: user.isCustomProfileImage,
+          visibility: user.visibility,
+          followApprovalMode: user.followApprovalMode,
+          showMutualFollow: user.showMutualFollow,
+          role: user.role,
+          emailVerified: user.emailVerified,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+          followersCount: await getFollowersCount(user.id),
+          followingCount: await getFollowingCount(user.id),
+          postsCount: await getPostsCount(user.id),
+          accessDenied: true,
+          message: "이 프로필에 접근할 수 없습니다",
+        },
+      });
+      return;
+    }
+
     // 팔로워/팔로잉/게시물 수 조회
     const followersCount = await getFollowersCount(user.id);
     const followingCount = await getFollowingCount(user.id);
@@ -343,7 +395,10 @@ export const getUserProfileByUsername = async (req: Request, res: Response) => {
         nickname: user.nickname,
         bio: user.bio,
         profileImage: user.profileImage,
+        isCustomProfileImage: user.isCustomProfileImage,
         visibility: user.visibility,
+        followApprovalMode: user.followApprovalMode,
+        showMutualFollow: user.showMutualFollow,
         role: user.role,
         emailVerified: user.emailVerified,
         createdAt: user.createdAt,
@@ -380,35 +435,11 @@ export const checkFollowStatus = async (
       return;
     }
 
-    const client = await pool.connect();
-
-    // 팔로우 상태 확인
-    const followResult = await client.query(
-      "SELECT * FROM follows WHERE follower_id = $1 AND following_id = $2",
-      [userId, targetUserId]
-    );
-
-    // 친한친구 상태 확인
-    const favoriteResult = await client.query(
-      "SELECT * FROM user_favorites WHERE user_id = $1 AND favorite_id = $2",
-      [userId, targetUserId]
-    );
-
-    // 차단 상태 확인
-    const blockResult = await client.query(
-      "SELECT * FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
-      [userId, targetUserId]
-    );
-
-    client.release();
+    const data = await FollowModel.checkFollowStatus(userId, targetUserId);
 
     res.json({
       success: true,
-      data: {
-        isFollowing: followResult.rows.length > 0,
-        isFavorite: favoriteResult.rows.length > 0,
-        isBlocked: blockResult.rows.length > 0,
-      },
+      data,
     });
   } catch (error) {
     log("ERROR", "팔로우 상태 확인 실패", error);
@@ -444,41 +475,13 @@ export const toggleFollow = async (
       return;
     }
 
-    const client = await pool.connect();
+    const result = await FollowModel.toggleFollow(userId, targetUserId);
 
-    // 현재 팔로우 상태 확인
-    const existingFollow = await client.query(
-      "SELECT * FROM follows WHERE follower_id = $1 AND following_id = $2",
-      [userId, targetUserId]
-    );
-
-    if (existingFollow.rows.length > 0) {
-      // 언팔로우
-      await client.query(
-        "DELETE FROM follows WHERE follower_id = $1 AND following_id = $2",
-        [userId, targetUserId]
-      );
-      client.release();
-
-      res.json({
-        success: true,
-        message: "팔로우를 취소했습니다",
-        data: { isFollowing: false },
-      });
-    } else {
-      // 팔로우
-      await client.query(
-        "INSERT INTO follows (follower_id, following_id) VALUES ($1, $2)",
-        [userId, targetUserId]
-      );
-      client.release();
-
-      res.json({
-        success: true,
-        message: "팔로우했습니다",
-        data: { isFollowing: true },
-      });
-    }
+    res.json({
+      success: true,
+      message: result.isFollowing ? "팔로우했습니다" : "팔로우를 취소했습니다",
+      data: result,
+    });
   } catch (error) {
     log("ERROR", "팔로우/언팔로우 실패", error);
     res.status(500).json({
@@ -505,46 +508,57 @@ export const toggleFavorite = async (
       return;
     }
 
-    const client = await pool.connect();
+    const result = await FollowModel.toggleFavorite(userId, targetUserId);
 
-    // 현재 친한친구 상태 확인
-    const existingFavorite = await client.query(
-      "SELECT * FROM user_favorites WHERE user_id = $1 AND favorite_id = $2",
-      [userId, targetUserId]
-    );
-
-    if (existingFavorite.rows.length > 0) {
-      // 친한친구 제거
-      await client.query(
-        "DELETE FROM user_favorites WHERE user_id = $1 AND favorite_id = $2",
-        [userId, targetUserId]
-      );
-      client.release();
-
-      res.json({
-        success: true,
-        message: "친한친구에서 제거했습니다",
-        data: { isFavorite: false },
-      });
-    } else {
-      // 친한친구 추가
-      await client.query(
-        "INSERT INTO user_favorites (user_id, favorite_id) VALUES ($1, $2)",
-        [userId, targetUserId]
-      );
-      client.release();
-
-      res.json({
-        success: true,
-        message: "친한친구에 추가했습니다",
-        data: { isFavorite: true },
-      });
-    }
+    res.json({
+      success: true,
+      message: result.isFavorite
+        ? "친한친구에 추가했습니다"
+        : "친한친구에서 제거했습니다",
+      data: result,
+    });
   } catch (error) {
     log("ERROR", "친한친구 처리 실패", error);
     res.status(500).json({
       success: false,
-      message: "친한친구 처리 중 오류가 발생했습니다",
+      message:
+        error instanceof Error
+          ? error.message
+          : "친한친구 처리 중 오류가 발생했습니다",
+    });
+  }
+};
+
+// 친한친구 목록 조회
+export const getFavorites = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const userId = req.user?.id;
+    const page = parseInt((req.query.page as string) || "1", 10);
+    const limit = parseInt((req.query.limit as string) || "20", 10);
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "인증이 필요합니다",
+      });
+      return;
+    }
+
+    const result = await FollowModel.getFavorites(userId, page, limit);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: result.pagination,
+    });
+  } catch (error) {
+    log("ERROR", "친한친구 목록 조회 실패", error);
+    res.status(500).json({
+      success: false,
+      message: "친한친구 목록 조회 중 오류가 발생했습니다",
     });
   }
 };
@@ -571,63 +585,152 @@ export const toggleBlock = async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    const client = await pool.connect();
+    const result = await FollowModel.toggleBlock(userId, targetUserId);
 
-    // 현재 차단 상태 확인
-    const existingBlock = await client.query(
-      "SELECT * FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
-      [userId, targetUserId]
-    );
-
-    if (existingBlock.rows.length > 0) {
-      // 차단 해제
-      await client.query(
-        "DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
-        [userId, targetUserId]
-      );
-      client.release();
-
-      res.json({
-        success: true,
-        message: "차단을 해제했습니다",
-        data: { isBlocked: false },
-      });
-    } else {
-      // 차단하기 (팔로우 관계도 자동 삭제)
-      await client.query("BEGIN");
-
-      // 팔로우 관계 삭제
-      await client.query(
-        "DELETE FROM follows WHERE (follower_id = $1 AND following_id = $2) OR (follower_id = $2 AND following_id = $1)",
-        [userId, targetUserId]
-      );
-
-      // 친한친구 관계 삭제
-      await client.query(
-        "DELETE FROM user_favorites WHERE (user_id = $1 AND favorite_id = $2) OR (user_id = $2 AND favorite_id = $1)",
-        [userId, targetUserId]
-      );
-
-      // 차단 추가
-      await client.query(
-        "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)",
-        [userId, targetUserId]
-      );
-
-      await client.query("COMMIT");
-      client.release();
-
-      res.json({
-        success: true,
-        message: "사용자를 차단했습니다",
-        data: { isBlocked: true },
-      });
-    }
+    res.json({
+      success: true,
+      message: result.isBlocked
+        ? "사용자를 차단했습니다"
+        : "차단을 해제했습니다",
+      data: result,
+    });
   } catch (error) {
     log("ERROR", "차단 처리 실패", error);
     res.status(500).json({
       success: false,
       message: "차단 처리 중 오류가 발생했습니다",
+    });
+  }
+};
+
+// 차단된 사용자 목록 조회
+export const getBlockedUsers = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const userId = req.user?.id;
+    const page = parseInt((req.query.page as string) || "1", 10);
+    const limit = parseInt((req.query.limit as string) || "20", 10);
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "인증이 필요합니다",
+      });
+      return;
+    }
+
+    const result = await FollowModel.getBlockedUsers(userId, page, limit);
+
+    res.json({
+      success: true,
+      data: result.users,
+      pagination: result.pagination,
+    });
+  } catch (error) {
+    log("ERROR", "차단된 사용자 목록 조회 실패", error);
+    res.status(500).json({
+      success: false,
+      message: "차단된 사용자 목록 조회 중 오류가 발생했습니다",
+    });
+  }
+};
+
+// 받은 팔로우 요청 목록 조회
+export const getFollowRequests = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const userId = req.user?.id;
+    const page = parseInt((req.query.page as string) || "1", 10);
+    const limit = parseInt((req.query.limit as string) || "20", 10);
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "인증이 필요합니다",
+      });
+      return;
+    }
+
+    const result = await FollowModel.getFollowRequests(userId, page, limit);
+
+    res.json({
+      success: true,
+      data: result.requests,
+      pagination: result.pagination,
+    });
+  } catch (error) {
+    log("ERROR", "팔로우 요청 목록 조회 실패", error);
+    res.status(500).json({
+      success: false,
+      message: "팔로우 요청 목록 조회 중 오류가 발생했습니다",
+    });
+  }
+};
+
+// 팔로우 요청 승인
+export const approveFollowRequest = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const userId = req.user?.id;
+    const { requesterId } = req.params;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "인증이 필요합니다",
+      });
+      return;
+    }
+
+    await FollowModel.approveFollowRequest(userId, requesterId);
+
+    res.json({
+      success: true,
+      message: "팔로우 요청을 승인했습니다",
+    });
+  } catch (error: any) {
+    log("ERROR", "팔로우 요청 승인 실패", error);
+    res.status(400).json({
+      success: false,
+      message: error.message || "팔로우 요청 승인 중 오류가 발생했습니다",
+    });
+  }
+};
+
+// 팔로우 요청 거절
+export const rejectFollowRequest = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const userId = req.user?.id;
+    const { requesterId } = req.params;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "인증이 필요합니다",
+      });
+      return;
+    }
+
+    await FollowModel.rejectFollowRequest(userId, requesterId);
+
+    res.json({
+      success: true,
+      message: "팔로우 요청을 거절했습니다",
+    });
+  } catch (error: any) {
+    log("ERROR", "팔로우 요청 거절 실패", error);
+    res.status(400).json({
+      success: false,
+      message: error.message || "팔로우 요청 거절 중 오류가 발생했습니다",
     });
   }
 };

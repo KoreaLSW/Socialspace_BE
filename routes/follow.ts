@@ -6,6 +6,7 @@ import {
   toggleBlock,
   getFollowers,
   getFollowing,
+  getMutualFollows,
 } from "../controllers/followController";
 import { getRecommendedUsers } from "../controllers/authController";
 import { authenticateToken } from "../middleware/auth";
@@ -27,6 +28,9 @@ router.post("/block/:targetUserId", authenticateToken, toggleBlock);
 // 팔로워/팔로잉 목록
 router.get("/followers/:userId", authenticateToken, getFollowers);
 router.get("/following/:userId", authenticateToken, getFollowing);
+
+// 상호 팔로우 목록
+router.get("/mutual-follows/:userId", authenticateToken, getMutualFollows);
 
 // 추천 유저 (동일 엔드포인트 유지 요청에 따라 경로명 유지)
 router.get("/recommended-userss", authenticateToken, getRecommendedUsers);
