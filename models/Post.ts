@@ -1,6 +1,7 @@
 import { pool } from "../config/database";
 import { log } from "../utils/logger";
 import { getKoreanTime } from "../utils/time";
+import { BlockModel } from "./Block";
 
 export interface Post {
   id: string;
@@ -75,7 +76,7 @@ export class PostModel {
   }
 
   // 게시글 ID로 찾기
-  static async findById(id: string): Promise<Post | null> {
+  static async findById(id: string, viewerId?: string): Promise<Post | null> {
     try {
       const client = await pool.connect();
       const result = await client.query(
@@ -91,7 +92,18 @@ export class PostModel {
         return null;
       }
 
-      return this.mapRowToPost(result.rows[0]);
+      const post = this.mapRowToPost(result.rows[0]);
+
+      // 차단 관계 확인 (viewerId가 있는 경우)
+      if (viewerId && viewerId !== post.user_id) {
+        const isBlocked = await BlockModel.isBlocked(viewerId, post.user_id);
+        if (isBlocked) {
+          // 차단된 경우 null 반환 (투명한 차단)
+          return null;
+        }
+      }
+
+      return post;
     } catch (error) {
       log("ERROR", "게시글 조회 실패 (ID)", error);
       throw error;
@@ -121,6 +133,16 @@ export class PostModel {
     try {
       const client = await pool.connect();
       const offset = (page - 1) * limit;
+
+      // 차단 관계 확인 (viewerId가 있는 경우)
+      if (viewerId && viewerId !== userId) {
+        const isBlocked = await BlockModel.isBlocked(viewerId, userId);
+        if (isBlocked) {
+          // 차단된 경우 빈 결과 반환 (투명한 차단)
+          client.release();
+          return { posts: [], total: 0 };
+        }
+      }
 
       const isOwner = viewerId === userId;
       const params: any[] = [userId];
@@ -171,7 +193,7 @@ export class PostModel {
     }
   }
 
-  // 전체 게시글 목록 조회 (공개범위/팔로우/비공개 반영)
+  // 전체 게시글 목록 조회 (공개범위/팔로우/비공개 반영 + 차단 필터링)
   static async findAll(
     page: number = 1,
     limit: number = 10,
@@ -185,7 +207,21 @@ export class PostModel {
       let countWhereClause = "";
       let params: any[] = [];
 
+      // 차단된 사용자 목록 조회 (로그인된 경우)
+      let blockedUserIds: string[] = [];
       if (userId) {
+        blockedUserIds = await BlockModel.getAllBlockedRelationUserIds(userId);
+      }
+
+      if (userId) {
+        let blockFilter = "";
+        if (blockedUserIds.length > 0) {
+          const blockPlaceholders = blockedUserIds
+            .map((_, index) => `$${params.length + index + 2}`)
+            .join(", ");
+          blockFilter = ` AND p.user_id NOT IN (${blockPlaceholders})`;
+        }
+
         whereClause = `
           WHERE (
             p.visibility = 'public'
@@ -199,10 +235,11 @@ export class PostModel {
               )
             ))
             OR (p.visibility = 'private' AND p.user_id = $1)
-          )
+          )${blockFilter}
         `;
         countWhereClause = whereClause;
         params.push(userId);
+        params.push(...blockedUserIds);
       } else {
         whereClause = "WHERE p.visibility = 'public'";
         countWhereClause = whereClause;
@@ -216,7 +253,7 @@ export class PostModel {
 
       const countResult = await client.query(
         countQuery,
-        userId ? [userId] : []
+        userId ? [userId, ...blockedUserIds] : []
       );
       const total = parseInt(countResult.rows[0].count);
 

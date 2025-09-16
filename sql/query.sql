@@ -48,6 +48,21 @@ COMMENT ON COLUMN public.users.is_custom_profile_image
     IS '사용자가 직접 설정한 프로필 이미지 여부 (true: 사용자 설정, false: 구글 기본 이미지)';
 COMMENT ON COLUMN public.users.follow_approval_mode
     IS '팔로우 승인 방식 (auto: 자동 승인, manual: 수동 승인)';
+COMMENT ON COLUMN public.users.show_mutual_follow
+    IS '상호 팔로우 관계 표시 여부 (true: 표시, false: 숨김)';
+COMMENT ON COLUMN public.users.notification_preferences
+    IS '사용자 알림 설정 (JSON 형태)
+- follow: 팔로우 관련 알림 (팔로우 요청, 수락 등)
+- like: 좋아요 알림 (게시글/댓글 좋아요)
+- comment: 댓글 알림 (게시글에 댓글 달림)
+- mention: 멘션 알림 (댓글에서 멘션됨)
+- push: 푸시 알림 (모바일 푸시)
+- email: 이메일 알림 (이메일로 받을 알림)';
+
+CREATE INDEX IF NOT EXISTS idx_users_notification_preferences
+    ON public.users USING gin
+    (notification_preferences)
+    TABLESPACE pg_default;
 
 -- 차단 테이블
 CREATE TABLE IF NOT EXISTS public.user_blocks

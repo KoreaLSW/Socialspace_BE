@@ -50,15 +50,32 @@ export class NotificationsController {
 
     await CommentMentionModel.createMany(records);
 
-    const notifRecords = Array.from(
+    // 각 멘션된 사용자의 알림 설정을 확인하여 알림 생성
+    const notifRecords = [];
+    const uniqueRecords = Array.from(
       new Map(records.map((r) => [r.mentioned_user_id, r])).values()
-    ).map((r) => ({
-      user_id: r.mentioned_user_id,
-      type: "mention_comment",
-      from_user_id: authorUserId,
-      target_id: commentId,
-    }));
-    await NotificationModel.createManyIfNotExists(notifRecords);
+    );
+
+    for (const record of uniqueRecords) {
+      const isMentionNotificationEnabled =
+        await UserModel.isNotificationEnabled(
+          record.mentioned_user_id,
+          "mention_comment"
+        );
+
+      if (isMentionNotificationEnabled) {
+        notifRecords.push({
+          user_id: record.mentioned_user_id,
+          type: "mention_comment",
+          from_user_id: authorUserId,
+          target_id: commentId,
+        });
+      }
+    }
+
+    if (notifRecords.length > 0) {
+      await NotificationModel.createManyIfNotExists(notifRecords);
+    }
   }
 
   // 댓글 수정 시 멘션 동기화 및 신규 알림 생성
@@ -114,16 +131,29 @@ export class NotificationsController {
       .filter(Boolean) as any[];
     await CommentMentionModel.createMany(toAdd);
 
-    // 신규 멘션 알림 생성
-    const notifRecords = Array.from(
+    // 신규 멘션 알림 생성 (알림 설정 확인)
+    const notifRecords = [];
+    const uniqueUserIds = Array.from(
       new Set(toAdd.map((r) => r.mentioned_user_id))
-    ).map((uid) => ({
-      user_id: uid,
-      type: "mention_comment",
-      from_user_id: authorUserId,
-      target_id: commentId,
-    }));
-    await NotificationModel.createManyIfNotExists(notifRecords);
+    );
+
+    for (const userId of uniqueUserIds) {
+      const isMentionNotificationEnabled =
+        await UserModel.isNotificationEnabled(userId, "mention_comment");
+
+      if (isMentionNotificationEnabled) {
+        notifRecords.push({
+          user_id: userId,
+          type: "mention_comment",
+          from_user_id: authorUserId,
+          target_id: commentId,
+        });
+      }
+    }
+
+    if (notifRecords.length > 0) {
+      await NotificationModel.createManyIfNotExists(notifRecords);
+    }
   }
 
   // ===== API Endpoints =====

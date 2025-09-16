@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { UserModel, User, NextAuthGoogleUser } from "../models/User";
 import { FollowModel } from "../models/Follow";
+import { BlockModel } from "../models/Block";
 import { log } from "../utils/logger";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { pool } from "../config/database";
@@ -330,6 +331,32 @@ export const getUserProfileByUsername = async (
         message: "사용자를 찾을 수 없습니다",
       });
       return;
+    }
+
+    // 차단 관계 확인 (투명한 차단)
+    if (viewerId && viewerId !== user.id) {
+      const isBlocked = await BlockModel.isBlocked(viewerId, user.id);
+      if (isBlocked) {
+        // 차단된 경우 빈 프로필 정보로 응답 (마치 비공개 계정처럼)
+        res.json({
+          success: true,
+          data: {
+            id: user.id,
+            username: user.username,
+            nickname: user.nickname || "사용자",
+            bio: "",
+            profileImage: "/default-avatar.png",
+            visibility: "private",
+            followersCount: 0,
+            followingCount: 0,
+            postsCount: 0,
+            accessDenied: true,
+            message: "이 계정은 비공개 계정입니다",
+            isBlocked: true, // 프론트엔드에서 차단 상태 인지용 (UI에서는 숨김)
+          },
+        });
+        return;
+      }
     }
 
     // 프로필 접근 권한 확인

@@ -5,6 +5,7 @@ import { HashtagModel } from "../../models/Hashtag";
 import { PostHashtagModel } from "../../models/PostHashtag";
 import { LikeModel } from "../../models/Like"; // 좋아요 기능 추가
 import { CommentModel } from "../../models/Comment"; // 댓글 수 기능 추가
+import { UserModel } from "../../models/User"; // 알림 설정 확인용
 import { log } from "../../utils/logger";
 import { AuthenticatedRequest } from "../../middleware/auth";
 import { pool } from "../../config/database";
@@ -82,15 +83,25 @@ export class PostsController {
         );
         client.release();
         const followerIds: string[] = res.rows.map((r) => r.follower_id);
-        const notifRecords = followerIds
-          .filter((fid) => fid !== userId)
-          .map((fid) => ({
-            user_id: fid,
-            type: "followee_post",
-            from_user_id: userId,
-            target_id: newPost.id,
-          }));
-        await NotificationModel.createManyIfNotExists(notifRecords);
+        // 각 팔로워의 알림 설정을 확인하여 알림 생성
+        const notifRecords = [];
+        for (const followerId of followerIds.filter((fid) => fid !== userId)) {
+          const isNotificationEnabled = await UserModel.isNotificationEnabled(
+            followerId,
+            "followee_post"
+          );
+          if (isNotificationEnabled) {
+            notifRecords.push({
+              user_id: followerId,
+              type: "followee_post",
+              from_user_id: userId,
+              target_id: newPost.id,
+            });
+          }
+        }
+        if (notifRecords.length > 0) {
+          await NotificationModel.createManyIfNotExists(notifRecords);
+        }
       } catch (e) {
         log("ERROR", "팔로워 새 게시글 알림 생성 실패", e);
       }
@@ -182,9 +193,13 @@ export class PostsController {
       const { id } = req.params;
       const userId = (req as any).user?.id as string | undefined;
 
-      const post = await PostModel.findById(id);
+      const post = await PostModel.findById(id, userId);
       if (!post) {
-        res.status(404).json({ error: "게시글을 찾을 수 없습니다." });
+        // 차단된 게시물이거나 존재하지 않는 게시물
+        res.status(404).json({
+          success: false,
+          error: "게시글을 찾을 수 없습니다.",
+        });
         return;
       }
 
@@ -638,15 +653,23 @@ export class PostsController {
         // 알림: 내 게시물에 좋아요가 눌렸을 때 (자기 자신 제외)
         if (post.user_id && post.user_id !== userId) {
           try {
-            await NotificationModel.createManyIfNotExists([
-              {
-                user_id: post.user_id,
-                type: "post_liked",
-                from_user_id: userId,
-                target_id: postId,
-              },
-            ]);
-          } catch (e) {}
+            // 게시물 작성자의 좋아요 알림 설정 확인
+            const isLikeNotificationEnabled =
+              await UserModel.isNotificationEnabled(post.user_id, "post_liked");
+
+            if (isLikeNotificationEnabled) {
+              await NotificationModel.createManyIfNotExists([
+                {
+                  user_id: post.user_id,
+                  type: "post_liked",
+                  from_user_id: userId,
+                  target_id: postId,
+                },
+              ]);
+            }
+          } catch (e) {
+            log("ERROR", "게시물 좋아요 알림 생성 실패", e);
+          }
         }
       }
 

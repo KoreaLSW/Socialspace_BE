@@ -2,6 +2,7 @@ import express from "express";
 import { PostsController } from "../controllers/posts/postsController";
 import { ImageController, upload } from "../controllers/posts/imageController";
 import { authenticateToken, optionalAuth } from "../middleware/auth";
+import { silentBlockForLikes } from "../middleware/silentBlock";
 
 const router = express.Router();
 
@@ -63,11 +64,21 @@ router.put("/:id", authenticateToken, PostsController.updatePost);
 // 게시글 삭제 (NextAuth 세션 인증 필요)
 router.delete("/:id", authenticateToken, PostsController.deletePost);
 
-// 게시글 좋아요 (NextAuth 세션 인증 필요)
-router.post("/:id/like", authenticateToken, PostsController.likePost);
+// 게시글 좋아요 (투명한 차단 처리)
+router.post(
+  "/:id/like",
+  authenticateToken,
+  silentBlockForLikes,
+  PostsController.likePost
+);
 
-// 게시글 좋아요 취소 (NextAuth 세션 인증 필요)
-router.delete("/:id/like", authenticateToken, PostsController.unlikePost);
+// 게시글 좋아요 취소 (투명한 차단 처리)
+router.delete(
+  "/:id/like",
+  authenticateToken,
+  silentBlockForLikes,
+  PostsController.unlikePost
+);
 
 // 게시글 좋아요 사용자 목록 (선택적 인증)
 router.get("/:id/likes", optionalAuth, PostsController.getPostLikes);

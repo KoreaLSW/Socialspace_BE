@@ -4,6 +4,7 @@ import { CommentModel, Comment, CreateCommentData } from "../models/Comment";
 import { LikeModel } from "../models/Like";
 import { NotificationModel } from "../models/Notification";
 import { PostModel } from "../models/Post";
+import { UserModel } from "../models/User"; // 알림 설정 확인용
 import { NotificationsController } from "./notificationsController";
 import { log } from "../utils/logger";
 
@@ -55,16 +56,27 @@ export class CommentsController {
       try {
         const post = await PostModel.findById(post_id);
         if (post && post.user_id && post.user_id !== user_id) {
-          await NotificationModel.createManyIfNotExists([
-            {
-              user_id: post.user_id,
-              type: "post_commented",
-              from_user_id: user_id,
-              target_id: comment.id,
-            },
-          ]);
+          // 게시물 작성자의 댓글 알림 설정 확인
+          const isCommentNotificationEnabled =
+            await UserModel.isNotificationEnabled(
+              post.user_id,
+              "post_commented"
+            );
+
+          if (isCommentNotificationEnabled) {
+            await NotificationModel.createManyIfNotExists([
+              {
+                user_id: post.user_id,
+                type: "post_commented",
+                from_user_id: user_id,
+                target_id: comment.id,
+              },
+            ]);
+          }
         }
-      } catch (e) {}
+      } catch (e) {
+        log("ERROR", "댓글 알림 생성 실패", e);
+      }
 
       await NotificationsController.processCommentMentionsOnCreate({
         commentId: comment.id,
@@ -498,15 +510,26 @@ export class CommentsController {
         // 알림: 내 댓글에 좋아요가 눌렸을 때 (자기 자신 제외)
         if (comment.user_id && comment.user_id !== userId) {
           try {
-            await NotificationModel.createManyIfNotExists([
-              {
-                user_id: comment.user_id,
-                type: "comment_liked",
-                from_user_id: userId,
-                target_id: commentId,
-              },
-            ]);
-          } catch (e) {}
+            // 댓글 작성자의 좋아요 알림 설정 확인
+            const isLikeNotificationEnabled =
+              await UserModel.isNotificationEnabled(
+                comment.user_id,
+                "comment_liked"
+              );
+
+            if (isLikeNotificationEnabled) {
+              await NotificationModel.createManyIfNotExists([
+                {
+                  user_id: comment.user_id,
+                  type: "comment_liked",
+                  from_user_id: userId,
+                  target_id: commentId,
+                },
+              ]);
+            }
+          } catch (e) {
+            log("ERROR", "댓글 좋아요 알림 생성 실패", e);
+          }
         }
       }
 

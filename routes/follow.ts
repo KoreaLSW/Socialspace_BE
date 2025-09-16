@@ -10,17 +10,28 @@ import {
 } from "../controllers/followController";
 import { getRecommendedUsers } from "../controllers/authController";
 import { authenticateToken } from "../middleware/auth";
+import { silentBlockForFollow } from "../middleware/silentFollowBlock";
 
 const router = Router();
 
 // 팔로우 상태 확인
 router.get("/status/:targetUserId", authenticateToken, checkFollowStatus);
 
-// 팔로우/언팔로우
-router.post("/:targetUserId", authenticateToken, toggleFollow);
+// 팔로우/언팔로우 (투명한 차단 처리)
+router.post(
+  "/:targetUserId",
+  authenticateToken,
+  silentBlockForFollow,
+  toggleFollow
+);
 
-// 친한친구 추가/제거
-router.post("/favorite/:targetUserId", authenticateToken, toggleFavorite);
+// 친한친구 추가/제거 (투명한 차단 처리)
+router.post(
+  "/favorite/:targetUserId",
+  authenticateToken,
+  silentBlockForFollow,
+  toggleFavorite
+);
 
 // 차단하기/차단해제
 router.post("/block/:targetUserId", authenticateToken, toggleBlock);

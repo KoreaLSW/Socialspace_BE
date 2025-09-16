@@ -11,6 +11,15 @@ export interface NextAuthGoogleUser {
   emailVerified: boolean;
 }
 
+export interface NotificationPreferences {
+  follow: boolean; // 팔로우 알림
+  followee_post: boolean; // 팔로잉 게시물 알림
+  post_liked: boolean; // 게시물 좋아요 알림
+  comment_liked: boolean; // 댓글 좋아요 알림
+  post_commented: boolean; // 게시물 댓글 알림
+  mention_comment: boolean; // 멘션 알림
+}
+
 export interface User {
   id: string; // Google ID를 직접 사용
   email: string;
@@ -22,6 +31,7 @@ export interface User {
   visibility: string;
   followApprovalMode?: string; // 팔로우 승인 방식 ('auto' | 'manual')
   showMutualFollow?: boolean; // 상호 팔로우 표시 여부
+  notificationPreferences?: NotificationPreferences; // 알림 설정
   role: string;
   emailVerified: boolean;
   createdAt: Date;
@@ -182,6 +192,10 @@ export class UserModel {
         setParts.push(`show_mutual_follow = $${paramIndex++}`);
         values.push(updates.showMutualFollow);
       }
+      if (updates.notificationPreferences !== undefined) {
+        setParts.push(`notification_preferences = $${paramIndex++}`);
+        values.push(JSON.stringify(updates.notificationPreferences));
+      }
 
       if (setParts.length === 0) {
         client.release();
@@ -219,13 +233,32 @@ export class UserModel {
     }
   }
 
-  // 추천 유저(팔로우하지 않은 인기 유저 + 친구의 친구)
+  // 추천 유저(팔로우하지 않은 인기 유저 + 친구의 친구) + 차단 필터링
   static async getSuggestedUsers(
     userId: string,
     limit: number = 10
   ): Promise<any[]> {
     try {
       const client = await pool.connect();
+
+      // 차단된 사용자 목록 조회
+      const { BlockModel } = await import("./Block");
+      const blockedUserIds = await BlockModel.getAllBlockedRelationUserIds(
+        userId
+      );
+
+      // 차단된 사용자 제외 조건 생성
+      let blockFilter = "";
+      let queryParams = [userId, limit];
+
+      if (blockedUserIds.length > 0) {
+        const placeholders = blockedUserIds
+          .map((_, index) => `$${index + 3}`)
+          .join(", ");
+        blockFilter = ` AND u.id NOT IN (${placeholders})`;
+        queryParams.push(...blockedUserIds);
+      }
+
       const result = await client.query(
         `
         WITH my_follows AS (
@@ -248,6 +281,7 @@ export class UserModel {
           LEFT JOIN follows f ON u.id = f.following_id AND f.is_accepted = true
           WHERE u.id != $1
             AND u.id NOT IN (SELECT following_id FROM my_follows)
+            ${blockFilter}
           GROUP BY u.id
           ORDER BY COUNT(f.follower_id) DESC
           LIMIT $2
@@ -269,11 +303,12 @@ export class UserModel {
             UNION
             SELECT id FROM popular_users
         )
+        ${blockFilter}
         GROUP BY u.id, u.username, u.nickname, u.profile_image
         ORDER BY reason, followers DESC
         LIMIT $2;
       `,
-        [userId, limit]
+        queryParams
       );
       client.release();
       return result.rows;
@@ -304,8 +339,139 @@ export class UserModel {
     }
   }
 
+  // 알림 설정 조회
+  static async getNotificationPreferences(
+    userId: string
+  ): Promise<NotificationPreferences | null> {
+    try {
+      const client = await pool.connect();
+      const result = await client.query(
+        "SELECT notification_preferences FROM users WHERE id = $1",
+        [userId]
+      );
+      client.release();
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const preferences = result.rows[0].notification_preferences;
+      // 기본값 설정
+      const defaultPreferences: NotificationPreferences = {
+        follow: true,
+        followee_post: true,
+        post_liked: true,
+        comment_liked: true,
+        post_commented: true,
+        mention_comment: true,
+      };
+
+      return preferences
+        ? { ...defaultPreferences, ...preferences }
+        : defaultPreferences;
+    } catch (error) {
+      log("ERROR", "알림 설정 조회 실패", error);
+      throw error;
+    }
+  }
+
+  // 알림 설정 업데이트
+  static async updateNotificationPreferences(
+    userId: string,
+    preferences: Partial<NotificationPreferences>
+  ): Promise<NotificationPreferences | null> {
+    try {
+      const client = await pool.connect();
+
+      // 현재 설정 조회
+      const currentPreferences = await this.getNotificationPreferences(userId);
+      if (!currentPreferences) {
+        client.release();
+        return null;
+      }
+
+      // 새로운 설정 병합
+      const updatedPreferences = { ...currentPreferences, ...preferences };
+
+      const koreanTime = getKoreanTime();
+      const result = await client.query(
+        `UPDATE users 
+         SET notification_preferences = $1, updated_at = $2 
+         WHERE id = $3 
+         RETURNING notification_preferences`,
+        [JSON.stringify(updatedPreferences), koreanTime, userId]
+      );
+      client.release();
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      log("INFO", "알림 설정 업데이트", {
+        userId,
+        preferences: updatedPreferences,
+        updatedAt: koreanTime,
+      });
+
+      return result.rows[0].notification_preferences;
+    } catch (error) {
+      log("ERROR", "알림 설정 업데이트 실패", error);
+      throw error;
+    }
+  }
+
+  // 특정 알림 타입 토글
+  static async toggleNotificationPreference(
+    userId: string,
+    type: keyof NotificationPreferences
+  ): Promise<NotificationPreferences | null> {
+    try {
+      const currentPreferences = await this.getNotificationPreferences(userId);
+      if (!currentPreferences) {
+        return null;
+      }
+
+      const updatedPreferences = {
+        ...currentPreferences,
+        [type]: !currentPreferences[type],
+      };
+
+      return await this.updateNotificationPreferences(
+        userId,
+        updatedPreferences
+      );
+    } catch (error) {
+      log("ERROR", "알림 설정 토글 실패", error);
+      throw error;
+    }
+  }
+
+  // 특정 알림 타입이 활성화되어 있는지 확인
+  static async isNotificationEnabled(
+    userId: string,
+    type: keyof NotificationPreferences
+  ): Promise<boolean> {
+    try {
+      const preferences = await this.getNotificationPreferences(userId);
+      return preferences ? preferences[type] : true; // 기본값은 true
+    } catch (error) {
+      log("ERROR", "알림 설정 확인 실패", error);
+      return true; // 에러 시 기본값 true
+    }
+  }
+
   // 데이터베이스 행을 User 객체로 변환
   private static mapRowToUser(row: any): User {
+    // 알림 설정 기본값
+    const defaultNotificationPreferences: NotificationPreferences = {
+      follow: true,
+      followee_post: true,
+      post_liked: true,
+      comment_liked: true,
+      post_commented: true,
+      mention_comment: true,
+    };
+
     return {
       id: row.id, // Google ID
       email: row.email,
@@ -317,6 +483,9 @@ export class UserModel {
       visibility: row.visibility,
       followApprovalMode: row.follow_approval_mode || "auto",
       showMutualFollow: row.show_mutual_follow !== false, // 기본값 true
+      notificationPreferences: row.notification_preferences
+        ? { ...defaultNotificationPreferences, ...row.notification_preferences }
+        : defaultNotificationPreferences,
       role: row.role,
       emailVerified: row.email_verified,
       createdAt: new Date(row.created_at),

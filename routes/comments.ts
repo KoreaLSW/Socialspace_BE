@@ -1,11 +1,20 @@
 import express from "express";
 import { CommentsController } from "../controllers/commentsController";
 import { authenticateToken, optionalAuth } from "../middleware/auth";
+import {
+  silentBlockForComments,
+  silentBlockForLikes,
+} from "../middleware/silentBlock";
 
 const router = express.Router();
 
-// 댓글 생성
-router.post("/", authenticateToken, CommentsController.createComment);
+// 댓글 생성 (투명한 차단 처리)
+router.post(
+  "/",
+  authenticateToken,
+  silentBlockForComments,
+  CommentsController.createComment
+);
 
 // 게시글의 댓글 목록 조회 (선택적 인증)
 router.get(
@@ -34,17 +43,19 @@ router.delete(
 // 게시글의 댓글 수 조회
 router.get("/post/:postId/count", CommentsController.getCommentCount);
 
-// 댓글 좋아요
+// 댓글 좋아요 (투명한 차단 처리)
 router.post(
   "/:commentId/like",
   authenticateToken,
+  silentBlockForLikes,
   CommentsController.likeComment
 );
 
-// 댓글 좋아요 취소
+// 댓글 좋아요 취소 (투명한 차단 처리)
 router.delete(
   "/:commentId/like",
   authenticateToken,
+  silentBlockForLikes,
   CommentsController.unlikeComment
 );
 

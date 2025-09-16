@@ -1,5 +1,6 @@
 import express from "express";
 import { UsersController } from "../controllers/usersController";
+import { NotificationPreferencesController } from "../controllers/notificationPreferencesController";
 import { authenticateToken } from "../middleware/auth";
 import multer from "multer";
 
@@ -47,6 +48,28 @@ router.put(
   "/profile-image",
   authenticateToken,
   UsersController.updateProfileImage
+);
+
+// 알림 설정 관련 라우트
+// 현재 알림 설정 조회
+router.get(
+  "/notification-preferences",
+  authenticateToken,
+  NotificationPreferencesController.getPreferences
+);
+
+// 알림 설정 업데이트
+router.put(
+  "/notification-preferences",
+  authenticateToken,
+  NotificationPreferencesController.updatePreferences
+);
+
+// 개별 알림 설정 토글
+router.patch(
+  "/notification-preferences/:type",
+  authenticateToken,
+  NotificationPreferencesController.togglePreference
 );
 
 export default router;

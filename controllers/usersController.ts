@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { UserModel } from "../models/User";
+import { BlockModel } from "../models/Block";
 import { log } from "../utils/logger";
 import {
   deleteImage,
@@ -13,13 +14,25 @@ export class UsersController {
     try {
       const q = (req.query.q as string) || "";
       const limit = parseInt((req.query.limit as string) || "5", 10);
+      const userId = (req as any).user?.id; // 선택적 인증
 
       if (!q || q.trim().length === 0) {
         res.json({ success: true, data: [] });
         return;
       }
 
-      const users = await UserModel.searchByQuery(q.trim(), limit);
+      let users = await UserModel.searchByQuery(q.trim(), limit);
+
+      // 로그인된 사용자의 경우 차단된 사용자 제외
+      if (userId && users.length > 0) {
+        const blockedUserIds = await BlockModel.getAllBlockedRelationUserIds(
+          userId
+        );
+        if (blockedUserIds.length > 0) {
+          users = users.filter((user) => !blockedUserIds.includes(user.id));
+        }
+      }
+
       res.json({ success: true, data: users });
     } catch (error) {
       log("ERROR", "사용자 검색 실패", error);
