@@ -356,6 +356,9 @@ CREATE TABLE IF NOT EXISTS public.chat_rooms
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     is_group boolean DEFAULT false,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    name character varying(100) COLLATE pg_catalog."default",
+    last_message_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT chat_rooms_pkey PRIMARY KEY (id)
 )
 TABLESPACE pg_default;
@@ -365,6 +368,16 @@ COMMENT ON TABLE public.chat_rooms
     IS '채팅방 테이블';
 COMMENT ON COLUMN public.chat_rooms.is_group
     IS '단체 채팅 여부';
+COMMENT ON COLUMN public.chat_rooms.name
+    IS '채팅방 이름 (그룹 채팅용, 1:1 채팅은 NULL)';
+COMMENT ON COLUMN public.chat_rooms.last_message_at
+    IS '마지막 메시지 시간';
+COMMENT ON COLUMN public.chat_rooms.updated_at
+    IS '채팅방 정보 수정 시간';
+CREATE INDEX IF NOT EXISTS idx_chat_rooms_last_message_at
+    ON public.chat_rooms USING btree
+    (last_message_at DESC NULLS FIRST)
+    TABLESPACE pg_default;
 
 -- ROOM MEMBERS
 CREATE TABLE IF NOT EXISTS public.chat_room_members
@@ -372,6 +385,9 @@ CREATE TABLE IF NOT EXISTS public.chat_room_members
     room_id uuid NOT NULL,
     user_id uuid NOT NULL,
     joined_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    role character varying(20) COLLATE pg_catalog."default" DEFAULT 'member'::character varying,
+    is_muted boolean DEFAULT false,
+    last_read_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT chat_room_members_pkey PRIMARY KEY (room_id, user_id),
     CONSTRAINT chat_room_members_room_id_fkey FOREIGN KEY (room_id)
         REFERENCES public.chat_rooms (id) MATCH SIMPLE
@@ -380,13 +396,24 @@ CREATE TABLE IF NOT EXISTS public.chat_room_members
     CONSTRAINT chat_room_members_user_id_fkey FOREIGN KEY (user_id)
         REFERENCES public.users (id) MATCH SIMPLE
         ON UPDATE NO ACTION
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT chat_room_members_role_check CHECK (role::text = ANY (ARRAY['owner'::character varying, 'admin'::character varying, 'member'::character varying]::text[]))
 )
 TABLESPACE pg_default;
 ALTER TABLE IF EXISTS public.chat_room_members
     OWNER to socialspace_user;
 COMMENT ON TABLE public.chat_room_members
     IS '채팅방 멤버 테이블';
+COMMENT ON COLUMN public.chat_room_members.role
+    IS '채팅방 내 역할: owner(방장), admin(관리자), member(일반 멤버)';
+COMMENT ON COLUMN public.chat_room_members.is_muted
+    IS '채팅방 알림 음소거 여부';
+COMMENT ON COLUMN public.chat_room_members.last_read_at
+    IS '마지막으로 채팅을 읽은 시간';
+CREATE INDEX IF NOT EXISTS idx_chat_room_members_user_joined_at
+    ON public.chat_room_members USING btree
+    (user_id ASC NULLS LAST, joined_at DESC NULLS FIRST)
+    TABLESPACE pg_default;
 
 -- MESSAGES
 CREATE TABLE IF NOT EXISTS public.chat_messages
@@ -395,8 +422,11 @@ CREATE TABLE IF NOT EXISTS public.chat_messages
     room_id uuid,
     sender_id uuid,
     content text COLLATE pg_catalog."default",
-    is_read boolean DEFAULT false,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    message_type character varying(20) COLLATE pg_catalog."default" DEFAULT 'text'::character varying,
+    file_url text COLLATE pg_catalog."default",
+    file_name character varying(255) COLLATE pg_catalog."default",
+    file_size bigint,
     CONSTRAINT chat_messages_pkey PRIMARY KEY (id),
     CONSTRAINT chat_messages_room_id_fkey FOREIGN KEY (room_id)
         REFERENCES public.chat_rooms (id) MATCH SIMPLE
@@ -405,7 +435,8 @@ CREATE TABLE IF NOT EXISTS public.chat_messages
     CONSTRAINT chat_messages_sender_id_fkey FOREIGN KEY (sender_id)
         REFERENCES public.users (id) MATCH SIMPLE
         ON UPDATE NO ACTION
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT chat_messages_type_check CHECK (message_type::text = ANY (ARRAY['text'::character varying, 'image'::character varying, 'file'::character varying, 'system'::character varying]::text[]))
 )
 TABLESPACE pg_default;
 ALTER TABLE IF EXISTS public.chat_messages
@@ -418,8 +449,94 @@ COMMENT ON COLUMN public.chat_messages.sender_id
     IS '메시지 보낸 사용자 ID';
 COMMENT ON COLUMN public.chat_messages.content
     IS '메시지 내용';
-COMMENT ON COLUMN public.chat_messages.is_read
-    IS '읽음 여부';
+COMMENT ON COLUMN public.chat_messages.message_type
+    IS '메시지 타입: text, image, file, system';
+COMMENT ON COLUMN public.chat_messages.file_url
+    IS '첨부 파일 URL (이미지/파일 메시지용)';
+COMMENT ON COLUMN public.chat_messages.file_name
+    IS '첨부 파일 원본 이름';
+COMMENT ON COLUMN public.chat_messages.file_size
+    IS '첨부 파일 크기 (bytes)';
+CREATE INDEX IF NOT EXISTS idx_chat_messages_room_created_at
+    ON public.chat_messages USING btree
+    (room_id ASC NULLS LAST, created_at DESC NULLS FIRST)
+    TABLESPACE pg_default;
+
+CREATE OR REPLACE TRIGGER trigger_update_chat_room_last_message
+    AFTER INSERT
+    ON public.chat_messages
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_chat_room_last_message();
+
+-- USER_CHAT_SETTINGS
+CREATE TABLE IF NOT EXISTS public.user_chat_settings
+(
+    user_id uuid NOT NULL,
+    allow_messages_from character varying(20) COLLATE pg_catalog."default" DEFAULT 'everyone'::character varying,
+    show_online_status boolean DEFAULT true,
+    notification_enabled boolean DEFAULT true,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT user_chat_settings_pkey PRIMARY KEY (user_id),
+    CONSTRAINT user_chat_settings_user_id_fkey FOREIGN KEY (user_id)
+        REFERENCES public.users (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT user_chat_settings_allow_messages_check CHECK (allow_messages_from::text = ANY (ARRAY['everyone'::character varying::text, 'followers'::character varying::text, 'none'::character varying::text]))
+)
+TABLESPACE pg_default;
+ALTER TABLE IF EXISTS public.user_chat_settings
+    OWNER to socialspace_user;
+COMMENT ON TABLE public.user_chat_settings
+    IS '사용자별 채팅 설정 테이블';
+COMMENT ON COLUMN public.user_chat_settings.user_id
+    IS '사용자 ID';
+COMMENT ON COLUMN public.user_chat_settings.allow_messages_from
+    IS '메시지 수신 허용 범위: everyone(모든 사용자), followers(팔로워만), none(차단)';
+COMMENT ON COLUMN public.user_chat_settings.show_online_status
+    IS '온라인 상태 표시 여부';
+COMMENT ON COLUMN public.user_chat_settings.notification_enabled
+    IS '채팅 알림 활성화 여부';
+COMMENT ON COLUMN public.user_chat_settings.created_at
+    IS '설정 생성 시간';
+COMMENT ON COLUMN public.user_chat_settings.updated_at
+    IS '설정 수정 시간';
+
+-- MESSAGE_READ_STATUS
+CREATE TABLE IF NOT EXISTS public.message_read_status
+(
+    message_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    read_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT message_read_status_pkey PRIMARY KEY (message_id, user_id),
+    CONSTRAINT message_read_status_message_id_fkey FOREIGN KEY (message_id)
+        REFERENCES public.chat_messages (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT message_read_status_user_id_fkey FOREIGN KEY (user_id)
+        REFERENCES public.users (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE
+)
+TABLESPACE pg_default;
+ALTER TABLE IF EXISTS public.message_read_status
+    OWNER to socialspace_user;
+COMMENT ON TABLE public.message_read_status
+    IS '메시지 읽음 상태 테이블 (사용자별 메시지 읽음 시간 기록)';
+COMMENT ON COLUMN public.message_read_status.message_id
+    IS '읽은 메시지 ID';
+COMMENT ON COLUMN public.message_read_status.user_id
+    IS '메시지를 읽은 사용자 ID';
+COMMENT ON COLUMN public.message_read_status.read_at
+    IS '메시지를 읽은 시간';
+CREATE INDEX IF NOT EXISTS idx_message_read_status_message
+    ON public.message_read_status USING btree
+    (message_id ASC NULLS LAST)
+    TABLESPACE pg_default;
+CREATE INDEX IF NOT EXISTS idx_message_read_status_user
+    ON public.message_read_status USING btree
+    (user_id ASC NULLS LAST)
+    TABLESPACE pg_default;
 
 -- NOTIFICATIONS
 CREATE TABLE IF NOT EXISTS public.notifications

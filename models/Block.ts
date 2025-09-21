@@ -81,8 +81,11 @@ export class BlockModel {
       client.release();
 
       return result.rows.map((row) => row.user_id);
-    } catch (error) {
-      log("ERROR", "차단 관계 사용자 목록 조회 실패", error);
+    } catch (error: any) {
+      log("ERROR", "차단 관계 사용자 목록 조회 실패", {
+        message: error?.message || "Unknown error",
+        userId: userId,
+      });
       return [];
     }
   }
@@ -109,5 +112,3 @@ export class BlockModel {
     }
   }
 }
-
-

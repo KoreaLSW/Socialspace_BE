@@ -10,6 +10,7 @@ import commentsRoutes from "./comments";
 import followRoutes from "./follow";
 import usersRoutes from "./users";
 import notificationsRoutes from "./notifications";
+import chatRoutes from "./chat";
 
 const router = express.Router();
 
@@ -49,5 +50,8 @@ router.use("/users", usersRoutes);
 
 // 알림 라우트
 router.use("/notifications", notificationsRoutes);
+
+// 채팅 라우트
+router.use("/chat", chatRoutes);
 
 export default router;

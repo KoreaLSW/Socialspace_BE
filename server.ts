@@ -4,12 +4,15 @@ dotenv.config();
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import { createServer } from "http";
 import { pool, PostgreSQLConnection } from "./config/database";
 import { errorHandler } from "./middleware/errorHandler";
 import { log } from "./utils/logger";
 import routes from "./routes";
+import { initializeSocket } from "./socket";
 
 const app = express();
+const httpServer = createServer(app);
 const port = process.env.PORT || 4000;
 
 // 프록시 환경에서 실제 클라이언트 IP 추출을 위해 신뢰 프록시 설정
@@ -56,11 +59,15 @@ const startServer = async () => {
     // 데이터베이스 연결 테스트
     const dbConnected = await PostgreSQLConnection();
 
+    // Socket.io 초기화
+    const io = initializeSocket(httpServer);
+
     // 서버 시작
-    app.listen(port, () => {
+    httpServer.listen(port, () => {
       log("INFO", `🚀 Server running on port ${port}`, {
         url: `http://localhost:${port}`,
         database: dbConnected ? "connected" : "disconnected",
+        socketio: "initialized",
       });
     });
 
