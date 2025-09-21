@@ -213,6 +213,7 @@ async function handleSendMessage(
   };
 
   const message = await ChatModel.createMessage(messageData);
+  log("INFO", `메시지 생성 완료: ${message.id}`, { message, room_id });
 
   // 채팅방의 모든 멤버들에게 실시간 전송 (발송자 포함)
   socket.nsp.to(room_id).emit("new_message", {
@@ -220,13 +221,23 @@ async function handleSendMessage(
     room_id,
   });
 
+  log(
+    "INFO",
+    `실시간 메시지 브로드캐스트 완료: ${message.id} in room ${room_id}`,
+    {
+      roomId: room_id,
+      messageId: message.id,
+      content: message.content,
+    }
+  );
+
   // 발송자에게 성공 응답
   callback?.({
     success: true,
     message,
   });
 
-  log("INFO", `실시간 메시지 전송: ${message.id} in room ${room_id}`);
+  log("INFO", `메시지 전송 완료: ${message.id} in room ${room_id}`);
 }
 
 /**

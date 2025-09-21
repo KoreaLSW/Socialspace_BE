@@ -16,11 +16,13 @@ CREATE TABLE IF NOT EXISTS public.users
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     is_custom_profile_image boolean DEFAULT false,
     follow_approval_mode character varying(20) COLLATE pg_catalog."default" DEFAULT 'auto'::character varying,
+    show_mutual_follow boolean DEFAULT true,
+    notification_preferences jsonb DEFAULT '{"like": true, "push": true, "email": false, "follow": true, "comment": true, "mention": true}'::jsonb,
+    showmutualfollow boolean DEFAULT true,
     CONSTRAINT users_pkey PRIMARY KEY (id),
     CONSTRAINT users_email_key UNIQUE (email),
     CONSTRAINT users_username_key UNIQUE (username)
 )
-
 TABLESPACE pg_default;
 ALTER TABLE IF EXISTS public.users
     OWNER to socialspace_user;
@@ -52,17 +54,21 @@ COMMENT ON COLUMN public.users.show_mutual_follow
     IS '상호 팔로우 관계 표시 여부 (true: 표시, false: 숨김)';
 COMMENT ON COLUMN public.users.notification_preferences
     IS '사용자 알림 설정 (JSON 형태)
-- follow: 팔로우 관련 알림 (팔로우 요청, 수락 등)
-- like: 좋아요 알림 (게시글/댓글 좋아요)
-- comment: 댓글 알림 (게시글에 댓글 달림)
-- mention: 멘션 알림 (댓글에서 멘션됨)
-- push: 푸시 알림 (모바일 푸시)
-- email: 이메일 알림 (이메일로 받을 알림)';
-
+- follow: 팔로우 알림 (누군가 나를 팔로우함)
+- followee_post: 팔로잉 게시물 알림 (팔로우한 사람의 새 게시물)
+- post_liked: 게시물 좋아요 알림 (내 게시물에 좋아요)
+- comment_liked: 댓글 좋아요 알림 (내 댓글에 좋아요)
+- post_commented: 게시물 댓글 알림 (내 게시물에 댓글)
+- mention_comment: 멘션 알림 (댓글에서 멘션됨)';
 CREATE INDEX IF NOT EXISTS idx_users_notification_preferences
     ON public.users USING gin
     (notification_preferences)
     TABLESPACE pg_default;
+CREATE OR REPLACE TRIGGER trigger_create_default_chat_settings
+    AFTER INSERT
+    ON public.users
+    FOR EACH ROW
+    EXECUTE FUNCTION public.create_default_chat_settings();
 
 -- 차단 테이블
 CREATE TABLE IF NOT EXISTS public.user_blocks

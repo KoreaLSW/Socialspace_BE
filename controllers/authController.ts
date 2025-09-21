@@ -242,6 +242,7 @@ export const updateProfile = async (
           isCustomProfileImage: user.isCustomProfileImage,
           visibility: user.visibility,
           followApprovalMode: user.followApprovalMode,
+          showMutualFollow: user.showMutualFollow,
           role: user.role,
           emailVerified: user.emailVerified,
           createdAt: user.createdAt,

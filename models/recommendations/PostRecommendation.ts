@@ -1,6 +1,6 @@
 import { pool } from "../../config/database";
 import { log } from "../../utils/logger";
-import { Post } from "../core/Post";
+import { Post } from "../Post";
 
 export interface RecommendationConfig {
   algorithm: "relationship" | "engagement" | "trending" | "hybrid";
@@ -13,13 +13,15 @@ export interface RecommendationConfig {
 }
 
 export interface PostWithScore extends Post {
+  id: string; // Post에서 상속받지만 명시적으로 추가
   recommendation_score: number;
   reason: string;
   // 사용자 정보
   author?: {
     id: string;
+    username: string;
     nickname: string;
-    profile_image?: string;
+    profileImage?: string;
   };
   // 해시태그 배열
   hashtags?: string[];
@@ -524,8 +526,9 @@ export class PostRecommendationModel {
       // 사용자 정보 추가
       author: {
         id: row.user_id,
+        username: row.username || "unknown",
         nickname: row.nickname || row.username || "익명",
-        profile_image: row.profile_image,
+        profileImage: row.profile_image,
       },
       // 해시태그 정보 추가 (JSON 배열을 파싱)
       hashtags: Array.isArray(row.hashtags)
