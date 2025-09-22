@@ -21,10 +21,7 @@ app.set("trust proxy", true);
 // 🔧 CORS 설정 추가
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000", // NextJS 개발 서버
-      "http://localhost:3001", // NextJS 개발 서버
-    ],
+    origin: process.env.ALLOWED_ORIGINS,
     credentials: true, // 쿠키 포함 허용
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
