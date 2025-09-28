@@ -24,7 +24,7 @@ const socketUsers = new Map<string, SessionData>(); // socketId -> user
 export function initializeSocket(httpServer: HttpServer): SocketIOServer {
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.NEXT_PUBLIC_FRONTEND_URL || "http://localhost:3000",
+      origin: process.env.ALLOWED_ORIGINS || "http://localhost:3000",
       methods: ["GET", "POST"],
       credentials: true,
     },
