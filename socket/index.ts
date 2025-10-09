@@ -111,6 +111,19 @@ export function initializeSocket(httpServer: HttpServer): SocketIOServer {
       }
     });
 
+    // 메시지 삭제
+    socket.on("delete_message", async (data, callback) => {
+      try {
+        await handleDeleteMessage(socket, data, callback);
+      } catch (error) {
+        log("ERROR", "메시지 삭제 실패", error);
+        callback?.({
+          success: false,
+          error: "메시지 삭제 중 오류가 발생했습니다.",
+        });
+      }
+    });
+
     // 타이핑 상태 전송
     socket.on("typing", (data) => {
       handleTyping(socket, data, true);
@@ -121,10 +134,23 @@ export function initializeSocket(httpServer: HttpServer): SocketIOServer {
     });
 
     // 연결 해제
-    socket.on("disconnect", () => {
-      log("INFO", `Socket 연결 해제: ${socket.user?.username} (${userId})`);
+    socket.on("disconnect", (reason) => {
+      log("INFO", `Socket 연결 해제: ${socket.user?.username} (${userId})`, {
+        reason,
+        socketId: socket.id,
+      });
+
+      // 사용자 연결 정보 정리
       connectedUsers.delete(userId);
       socketUsers.delete(socket.id);
+    });
+
+    // 에러 이벤트
+    socket.on("error", (error) => {
+      log("ERROR", `Socket 에러: ${socket.user?.username} (${userId})`, {
+        error: error.message,
+        socketId: socket.id,
+      });
     });
   });
 
@@ -307,14 +333,20 @@ async function handleMarkAsRead(
 
   await ChatModel.markMessageAsRead(message_id, userId);
 
-  // 채팅방의 다른 멤버들에게 읽음 상태 전송
+  // 채팅방의 모든 멤버들에게 읽음 상태 전송 (자신 포함)
   if (room_id) {
-    socket.to(room_id).emit("message_read", {
+    socket.nsp.to(room_id).emit("message_read", {
       message_id,
       user_id: userId,
+      room_id, // room_id 포함
       user: socket.user,
       read_at: new Date(),
     });
+
+    log(
+      "INFO",
+      `실시간 읽음 상태 브로드캐스트: ${message_id} by ${userId} in room ${room_id}`
+    );
   }
 
   callback?.({
@@ -322,7 +354,60 @@ async function handleMarkAsRead(
     message: "메시지를 읽음 처리했습니다.",
   });
 
-  log("DEBUG", `메시지 읽음 처리: ${message_id} by ${userId}`);
+  log("INFO", `메시지 읽음 처리 완료: ${message_id} by ${userId}`);
+}
+
+/**
+ * 메시지 삭제 처리
+ */
+async function handleDeleteMessage(
+  socket: AuthenticatedSocket,
+  data: any,
+  callback?: Function
+) {
+  if (!socket.user) return;
+
+  const { message_id, room_id } = data;
+  const userId = socket.user.userId;
+
+  if (!message_id) {
+    callback?.({
+      success: false,
+      error: "메시지 ID가 필요합니다.",
+    });
+    return;
+  }
+
+  try {
+    await ChatModel.deleteMessage(message_id, userId);
+
+    // 채팅방의 모든 멤버들에게 삭제 이벤트 전송 (자신 포함)
+    if (room_id) {
+      socket.nsp.to(room_id).emit("message_deleted", {
+        message_id,
+        room_id,
+        deleted_by: userId,
+      });
+
+      log(
+        "INFO",
+        `실시간 삭제 이벤트 브로드캐스트: ${message_id} by ${userId} in room ${room_id}`
+      );
+    }
+
+    callback?.({
+      success: true,
+      message: "메시지가 삭제되었습니다.",
+    });
+
+    log("INFO", `메시지 삭제 완료: ${message_id} by ${userId}`);
+  } catch (error: any) {
+    log("ERROR", "메시지 삭제 실패", error);
+    callback?.({
+      success: false,
+      error: error.message || "메시지 삭제에 실패했습니다.",
+    });
+  }
 }
 
 /**

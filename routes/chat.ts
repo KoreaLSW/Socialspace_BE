@@ -1,5 +1,5 @@
 import express from "express";
-import { ChatController } from "../controllers/chatController";
+import { ChatController, chatUpload } from "../controllers/chatController";
 import { authenticateToken } from "../middleware/auth";
 
 const router = express.Router();
@@ -26,6 +26,13 @@ router.get(
   ChatController.getUnreadCount
 );
 
+// 채팅방 나가기
+router.delete(
+  "/rooms/:roomId/leave",
+  authenticateToken,
+  ChatController.leaveRoom
+);
+
 // ========== 메시지 관련 라우트 ==========
 
 // 메시지 전송 (HTTP API - 백업용, 주로 Socket.io 사용)
@@ -45,6 +52,20 @@ router.post(
   ChatController.markMessageAsRead
 );
 
+// 메시지 삭제
+router.delete(
+  "/messages/:messageId",
+  authenticateToken,
+  ChatController.deleteMessage
+);
+
+// 메시지 검색
+router.get(
+  "/rooms/:roomId/search",
+  authenticateToken,
+  ChatController.searchMessages
+);
+
 // ========== 사용자 채팅 설정 관련 라우트 ==========
 
 // 사용자 채팅 설정 조회
@@ -52,5 +73,15 @@ router.get("/settings", authenticateToken, ChatController.getChatSettings);
 
 // 사용자 채팅 설정 업데이트
 router.put("/settings", authenticateToken, ChatController.updateChatSettings);
+
+// ========== 파일 업로드 관련 라우트 ==========
+
+// 채팅 파일 업로드
+router.post(
+  "/upload",
+  authenticateToken,
+  chatUpload.single("file"),
+  ChatController.uploadChatFile
+);
 
 export default router;

@@ -428,9 +428,21 @@ export class ChatModel {
         [roomId, limit, offset]
       );
 
-      const messages = messagesResult.rows
-        .map(this.mapRowToChatMessage)
-        .reverse(); // 시간순으로 정렬
+      // 메시지에 읽음 상태 정보 추가
+      const messages = await Promise.all(
+        messagesResult.rows.map(async (row) => {
+          const message = this.mapRowToChatMessage(row);
+          // 각 메시지의 읽음 상태 조회
+          message.read_by = await this.getReadStatusForMessage(
+            message.id,
+            client
+          );
+          return message;
+        })
+      );
+
+      // 시간순으로 정렬
+      messages.reverse();
 
       return {
         messages,
@@ -517,6 +529,40 @@ export class ChatModel {
     } catch (error) {
       log("ERROR", "메시지 읽음 처리 실패", error);
       throw error;
+    }
+  }
+
+  /**
+   * 메시지의 읽음 상태 조회 (헬퍼 메서드)
+   */
+  private static async getReadStatusForMessage(
+    messageId: string,
+    client: any
+  ): Promise<MessageReadStatus[]> {
+    try {
+      const result = await client.query(
+        `SELECT mrs.*, u.username, u.nickname, u.profile_image
+         FROM message_read_status mrs
+         JOIN users u ON mrs.user_id = u.id
+         WHERE mrs.message_id = $1
+         ORDER BY mrs.read_at ASC`,
+        [messageId]
+      );
+
+      return result.rows.map((row: any) => ({
+        message_id: row.message_id,
+        user_id: row.user_id,
+        read_at: row.read_at,
+        user: {
+          id: row.user_id,
+          username: row.username,
+          nickname: row.nickname,
+          profile_image: row.profile_image,
+        },
+      }));
+    } catch (error) {
+      log("ERROR", "메시지 읽음 상태 조회 실패", error);
+      return []; // 에러 시 빈 배열 반환
     }
   }
 
@@ -654,5 +700,156 @@ export class ChatModel {
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
+  }
+
+  /**
+   * 메시지 삭제 (soft delete)
+   */
+  static async deleteMessage(messageId: string, userId: string): Promise<void> {
+    const client = await pool.connect();
+    try {
+      // 메시지 작성자 확인
+      const messageResult = await client.query(
+        `SELECT sender_id FROM chat_messages WHERE id = $1`,
+        [messageId]
+      );
+
+      if (messageResult.rows.length === 0) {
+        throw new Error("메시지를 찾을 수 없습니다.");
+      }
+
+      const senderId = messageResult.rows[0].sender_id;
+      if (senderId !== userId) {
+        throw new Error("본인이 작성한 메시지만 삭제할 수 있습니다.");
+      }
+
+      // 메시지 삭제 (실제로는 내용을 변경)
+      await client.query(
+        `UPDATE chat_messages 
+         SET content = '삭제된 메시지입니다', 
+             message_type = 'system',
+             file_url = NULL,
+             file_name = NULL,
+             file_size = NULL
+         WHERE id = $1`,
+        [messageId]
+      );
+
+      log("INFO", `메시지 삭제: ${messageId} by user ${userId}`);
+    } catch (error) {
+      log("ERROR", "메시지 삭제 실패", error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * 채팅방 메시지 검색
+   */
+  static async searchMessages(
+    roomId: string,
+    userId: string,
+    query: string,
+    limit: number = 50
+  ): Promise<ChatMessage[]> {
+    const client = await pool.connect();
+    try {
+      // 사용자가 해당 채팅방의 멤버인지 확인
+      const memberCheck = await client.query(
+        `SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2`,
+        [roomId, userId]
+      );
+
+      if (memberCheck.rows.length === 0) {
+        throw new Error("채팅방에 접근 권한이 없습니다.");
+      }
+
+      // 메시지 검색 (내용에 검색어 포함)
+      const result = await client.query(
+        `SELECT cm.*, u.username, u.nickname, u.profile_image
+         FROM chat_messages cm
+         JOIN users u ON cm.sender_id = u.id
+         WHERE cm.room_id = $1 
+         AND cm.content ILIKE $2
+         AND cm.message_type != 'system'
+         ORDER BY cm.created_at DESC
+         LIMIT $3`,
+        [roomId, `%${query}%`, limit]
+      );
+
+      return result.rows.map(this.mapRowToChatMessage);
+    } catch (error) {
+      log("ERROR", "메시지 검색 실패", error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * 채팅방에서 나가기 (멤버 삭제)
+   */
+  static async leaveRoom(roomId: string, userId: string): Promise<void> {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // 채팅방 멤버에서 삭제
+      await client.query(
+        `DELETE FROM chat_room_members 
+         WHERE room_id = $1 AND user_id = $2`,
+        [roomId, userId]
+      );
+
+      // 해당 사용자의 메시지 읽음 상태 삭제
+      await client.query(
+        `DELETE FROM message_read_status 
+         WHERE user_id = $1 AND message_id IN (
+           SELECT id FROM chat_messages WHERE room_id = $2
+         )`,
+        [userId, roomId]
+      );
+
+      // 채팅방에 남은 멤버 수 확인
+      const memberCountResult = await client.query(
+        `SELECT COUNT(*) as count FROM chat_room_members WHERE room_id = $1`,
+        [roomId]
+      );
+
+      const memberCount = parseInt(memberCountResult.rows[0].count);
+
+      // 채팅방에 멤버가 없으면 채팅방과 관련 데이터 삭제
+      if (memberCount === 0) {
+        // 메시지 읽음 상태 삭제
+        await client.query(
+          `DELETE FROM message_read_status 
+           WHERE message_id IN (
+             SELECT id FROM chat_messages WHERE room_id = $1
+           )`,
+          [roomId]
+        );
+
+        // 채팅 메시지 삭제
+        await client.query(`DELETE FROM chat_messages WHERE room_id = $1`, [
+          roomId,
+        ]);
+
+        // 채팅방 삭제
+        await client.query(`DELETE FROM chat_rooms WHERE id = $1`, [roomId]);
+
+        console.log(`빈 채팅방 ${roomId} 삭제 완료`);
+      }
+
+      await client.query("COMMIT");
+      console.log(`사용자 ${userId}가 채팅방 ${roomId}에서 나감`);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.error("채팅방 나가기 실패:", error);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }

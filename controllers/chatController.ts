@@ -9,6 +9,46 @@ import {
 } from "../models/Chat";
 import { BlockModel } from "../models/Block";
 import { log } from "../utils/logger";
+import { uploadImage } from "../config/cloudinary";
+import multer from "multer";
+
+// 메모리 스토리지 설정
+const storage = multer.memoryStorage();
+
+// 파일 필터 (이미지와 일반 파일 허용)
+const chatFileFilter = (
+  req: any,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback
+) => {
+  // 허용할 파일 타입
+  const allowedMimes = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain",
+  ];
+
+  if (allowedMimes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("지원하지 않는 파일 형식입니다."));
+  }
+};
+
+// Multer 설정 (채팅용)
+export const chatUpload = multer({
+  storage: storage,
+  fileFilter: chatFileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB 제한
+  },
+});
 
 export class ChatController {
   // ========== 채팅방 관련 API ==========
@@ -181,6 +221,156 @@ export class ChatController {
       res.status(500).json({
         success: false,
         message: "채팅방 멤버 조회 중 오류가 발생했습니다.",
+      });
+    }
+  }
+
+  /**
+   * 메시지 삭제
+   * DELETE /chat/messages/:messageId
+   */
+  static async deleteMessage(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      const { messageId } = req.params;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "인증이 필요합니다.",
+        });
+        return;
+      }
+
+      if (!messageId) {
+        res.status(400).json({
+          success: false,
+          message: "메시지 ID가 필요합니다.",
+        });
+        return;
+      }
+
+      await ChatModel.deleteMessage(messageId, userId);
+
+      res.status(200).json({
+        success: true,
+        message: "메시지가 삭제되었습니다.",
+      });
+    } catch (error: any) {
+      log("ERROR", "메시지 삭제 실패", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "메시지 삭제에 실패했습니다.",
+      });
+    }
+  }
+
+  /**
+   * 메시지 검색
+   * GET /chat/rooms/:roomId/search?q=검색어
+   */
+  static async searchMessages(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      const { roomId } = req.params;
+      const { q } = req.query;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "인증이 필요합니다.",
+        });
+        return;
+      }
+
+      if (!roomId || !q) {
+        res.status(400).json({
+          success: false,
+          message: "채팅방 ID와 검색어가 필요합니다.",
+        });
+        return;
+      }
+
+      const messages = await ChatModel.searchMessages(
+        roomId,
+        userId,
+        q as string,
+        50
+      );
+
+      res.status(200).json({
+        success: true,
+        data: messages,
+      });
+    } catch (error: any) {
+      log("ERROR", "메시지 검색 실패", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "메시지 검색에 실패했습니다.",
+      });
+    }
+  }
+
+  /**
+   * 채팅방 나가기
+   * DELETE /chat/rooms/:roomId/leave
+   */
+  static async leaveRoom(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const { roomId } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "인증되지 않은 사용자입니다.",
+        });
+        return;
+      }
+
+      if (!roomId) {
+        res.status(400).json({
+          success: false,
+          message: "채팅방 ID가 필요합니다.",
+        });
+        return;
+      }
+
+      // 채팅방 접근 권한 확인
+      const userRooms = await ChatModel.getUserRooms(userId, 1, 1000);
+      const hasAccess = userRooms.rooms.some((room) => room.id === roomId);
+
+      if (!hasAccess) {
+        res.status(403).json({
+          success: false,
+          message: "채팅방에 접근 권한이 없습니다.",
+        });
+        return;
+      }
+
+      // 채팅방에서 나가기 (멤버 삭제)
+      await ChatModel.leaveRoom(roomId, userId);
+
+      log("INFO", `사용자 ${userId}가 채팅방 ${roomId}에서 나감`);
+
+      res.json({
+        success: true,
+        message: "채팅방에서 나갔습니다.",
+      });
+    } catch (error) {
+      log("ERROR", "채팅방 나가기 실패", error);
+      res.status(500).json({
+        success: false,
+        message: "채팅방 나가기 중 오류가 발생했습니다.",
       });
     }
   }
@@ -487,6 +677,67 @@ export class ChatController {
       res.status(500).json({
         success: false,
         message: "채팅 설정 업데이트 중 오류가 발생했습니다.",
+      });
+    }
+  }
+
+  // ========== 파일 업로드 관련 API ==========
+
+  /**
+   * 채팅 파일 업로드
+   * POST /chat/upload
+   */
+  static async uploadChatFile(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "로그인이 필요합니다.",
+        });
+        return;
+      }
+
+      if (!req.file) {
+        res.status(400).json({
+          success: false,
+          message: "파일이 필요합니다.",
+        });
+        return;
+      }
+
+      const file = req.file;
+      const isImage = file.mimetype.startsWith("image/");
+
+      // Cloudinary에 업로드
+      const result = await uploadImage(file, `socialspace/chat/${userId}`);
+
+      log(
+        "INFO",
+        `채팅 파일 업로드 성공: ${result.public_id} by user ${userId}`
+      );
+
+      res.json({
+        success: true,
+        data: {
+          fileUrl: result.url,
+          publicId: result.public_id,
+          fileName: file.originalname,
+          fileSize: file.size,
+          fileType: isImage ? "image" : "file",
+          mimeType: file.mimetype,
+        },
+        message: "파일이 성공적으로 업로드되었습니다.",
+      });
+    } catch (error) {
+      log("ERROR", "채팅 파일 업로드 실패", error);
+      res.status(500).json({
+        success: false,
+        message: "파일 업로드 중 오류가 발생했습니다.",
+        details: error instanceof Error ? error.message : "Unknown error",
       });
     }
   }

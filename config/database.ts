@@ -16,6 +16,25 @@ export const pool = new Pool({
   options: "-c timezone=Asia/Seoul",
 });
 
+// Pool 에러 이벤트 핸들러
+pool.on("error", (err: any, client) => {
+  log("ERROR", "예상치 못한 데이터베이스 풀 에러", {
+    error: err.message,
+    code: err.code,
+    stack: err.stack,
+  });
+});
+
+// 연결 획득 에러 핸들러
+pool.on("connect", (client) => {
+  log("DEBUG", "데이터베이스 클라이언트 연결됨");
+});
+
+// 연결 해제 핸들러
+pool.on("remove", (client) => {
+  log("DEBUG", "데이터베이스 클라이언트 제거됨");
+});
+
 // 데이터베이스 연결 테스트
 export const PostgreSQLConnection = async () => {
   try {
