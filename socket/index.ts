@@ -111,6 +111,19 @@ export function initializeSocket(httpServer: HttpServer): SocketIOServer {
       }
     });
 
+    // 채팅방의 모든 메시지 읽음 처리
+    socket.on("mark_all_as_read", async (data, callback) => {
+      try {
+        await handleMarkAllAsRead(socket, data, callback);
+      } catch (error) {
+        log("ERROR", "전체 읽음 처리 실패", error);
+        callback?.({
+          success: false,
+          error: "전체 읽음 처리 중 오류가 발생했습니다.",
+        });
+      }
+    });
+
     // 메시지 삭제
     socket.on("delete_message", async (data, callback) => {
       try {
@@ -355,6 +368,59 @@ async function handleMarkAsRead(
   });
 
   log("INFO", `메시지 읽음 처리 완료: ${message_id} by ${userId}`);
+}
+
+/**
+ * 채팅방의 모든 메시지 읽음 처리
+ */
+async function handleMarkAllAsRead(
+  socket: AuthenticatedSocket,
+  data: any,
+  callback?: Function
+) {
+  if (!socket.user) return;
+
+  const { room_id } = data;
+  const userId = socket.user.userId;
+
+  if (!room_id) {
+    callback?.({
+      success: false,
+      error: "채팅방 ID가 필요합니다.",
+    });
+    return;
+  }
+
+  // 먼저 읽음 처리할 메시지들을 가져옴
+  const unreadMessages = await ChatModel.getUnreadMessages(room_id, userId);
+
+  await ChatModel.markAllMessagesAsRead(room_id, userId);
+
+  // 각 메시지에 대해 개별 읽음 상태 이벤트 전송
+  for (const message of unreadMessages) {
+    socket.nsp.to(room_id).emit("message_read", {
+      message_id: message.id,
+      user_id: userId,
+      room_id,
+      user: socket.user,
+      read_at: new Date(),
+    });
+  }
+
+  // 채팅방의 모든 멤버들에게 전체 읽음 상태 전송 (자신 포함)
+  socket.nsp.to(room_id).emit("all_messages_read", {
+    room_id,
+    user_id: userId,
+    user: socket.user,
+    read_at: new Date(),
+  });
+
+  callback?.({
+    success: true,
+    message: "모든 메시지를 읽음 처리했습니다.",
+  });
+
+  log("INFO", `채팅방 전체 읽음 처리 완료: ${room_id} by ${userId}`);
 }
 
 /**

@@ -533,6 +533,83 @@ export class ChatModel {
   }
 
   /**
+   * 채팅방의 모든 안읽은 메시지를 읽음 처리
+   */
+  static async markAllMessagesAsRead(
+    roomId: string,
+    userId: string
+  ): Promise<void> {
+    try {
+      const client = await pool.connect();
+      const currentTime = getKoreanTime();
+
+      // 사용자가 해당 채팅방의 멤버인지 확인
+      const memberCheck = await client.query(
+        `SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2`,
+        [roomId, userId]
+      );
+
+      if (memberCheck.rows.length === 0) {
+        throw new Error("채팅방에 접근 권한이 없습니다.");
+      }
+
+      // 사용자의 마지막 읽은 시간 조회
+      const memberResult = await client.query(
+        `SELECT last_read_at FROM chat_room_members WHERE room_id = $1 AND user_id = $2`,
+        [roomId, userId]
+      );
+
+      if (memberResult.rows.length === 0) {
+        client.release();
+        return;
+      }
+
+      const lastReadAt = memberResult.rows[0].last_read_at;
+
+      // 마지막 읽은 시간 이후의 모든 메시지를 읽음 처리 (본인 메시지 제외)
+      const unreadMessages = await client.query(
+        `SELECT id FROM chat_messages 
+         WHERE room_id = $1 
+         AND sender_id != $2 
+         AND created_at > $3`,
+        [roomId, userId, lastReadAt]
+      );
+
+      // 각 메시지에 대해 읽음 상태 추가
+      for (const message of unreadMessages.rows) {
+        const existingRead = await client.query(
+          `SELECT 1 FROM message_read_status WHERE message_id = $1 AND user_id = $2`,
+          [message.id, userId]
+        );
+
+        if (existingRead.rows.length === 0) {
+          await client.query(
+            `INSERT INTO message_read_status (message_id, user_id, read_at) VALUES ($1, $2, $3)`,
+            [message.id, userId, currentTime]
+          );
+        }
+      }
+
+      // 채팅방 멤버의 last_read_at을 현재 시간으로 업데이트
+      await client.query(
+        `UPDATE chat_room_members 
+         SET last_read_at = $3
+         WHERE room_id = $1 AND user_id = $2`,
+        [roomId, userId, currentTime]
+      );
+
+      client.release();
+      log(
+        "INFO",
+        `채팅방 ${roomId}의 모든 메시지를 읽음 처리: ${unreadMessages.rows.length}개`
+      );
+    } catch (error) {
+      log("ERROR", "채팅방 메시지 읽음 처리 실패", error);
+      throw error;
+    }
+  }
+
+  /**
    * 메시지의 읽음 상태 조회 (헬퍼 메서드)
    */
   private static async getReadStatusForMessage(
@@ -563,6 +640,53 @@ export class ChatModel {
     } catch (error) {
       log("ERROR", "메시지 읽음 상태 조회 실패", error);
       return []; // 에러 시 빈 배열 반환
+    }
+  }
+
+  /**
+   * 채팅방의 안읽은 메시지 목록 조회
+   */
+  static async getUnreadMessages(
+    roomId: string,
+    userId: string
+  ): Promise<ChatMessage[]> {
+    const client = await pool.connect();
+    try {
+      // 사용자의 마지막 읽은 시간 조회
+      const memberResult = await client.query(
+        `SELECT last_read_at FROM chat_room_members WHERE room_id = $1 AND user_id = $2`,
+        [roomId, userId]
+      );
+
+      if (memberResult.rows.length === 0) {
+        client.release();
+        return [];
+      }
+
+      const lastReadAt = memberResult.rows[0].last_read_at;
+
+      // 마지막 읽은 시간 이후의 메시지들 조회 (본인 메시지 제외)
+      const result = await client.query(
+        `SELECT cm.*, u.username, u.nickname, u.profile_image
+         FROM chat_messages cm
+         JOIN users u ON cm.sender_id = u.id
+         WHERE cm.room_id = $1 
+         AND cm.sender_id != $2 
+         AND cm.created_at > $3
+         ORDER BY cm.created_at ASC`,
+        [roomId, userId, lastReadAt]
+      );
+
+      return result.rows.map(this.mapRowToChatMessage);
+    } catch (error: any) {
+      log("ERROR", "안읽은 메시지 목록 조회 실패", {
+        message: error?.message || "Unknown error",
+        roomId: roomId,
+        userId: userId,
+      });
+      return [];
+    } finally {
+      client.release();
     }
   }
 
@@ -847,6 +971,108 @@ export class ChatModel {
     } catch (error) {
       await client.query("ROLLBACK");
       console.error("채팅방 나가기 실패:", error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * 채팅방에 멤버 추가 (그룹 채팅 초대)
+   */
+  static async addMembersToRoom(
+    roomId: string,
+    userIds: string[],
+    invitedBy: string
+  ): Promise<void> {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const currentTime = getKoreanTime();
+
+      // 채팅방이 그룹 채팅인지 확인
+      const roomResult = await client.query(
+        `SELECT is_group FROM chat_rooms WHERE id = $1`,
+        [roomId]
+      );
+
+      if (roomResult.rows.length === 0) {
+        throw new Error("채팅방을 찾을 수 없습니다.");
+      }
+
+      if (!roomResult.rows[0].is_group) {
+        throw new Error("1:1 채팅방에는 멤버를 추가할 수 없습니다.");
+      }
+
+      // 초대하는 사용자가 채팅방 멤버인지 확인
+      const inviterCheck = await client.query(
+        `SELECT role FROM chat_room_members WHERE room_id = $1 AND user_id = $2`,
+        [roomId, invitedBy]
+      );
+
+      if (inviterCheck.rows.length === 0) {
+        throw new Error("채팅방에 접근 권한이 없습니다.");
+      }
+
+      // 각 사용자 추가
+      for (const userId of userIds) {
+        // 이미 멤버인지 확인
+        const existingMember = await client.query(
+          `SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2`,
+          [roomId, userId]
+        );
+
+        if (existingMember.rows.length === 0) {
+          // 멤버 추가
+          await client.query(
+            `INSERT INTO chat_room_members (room_id, user_id, role, joined_at, last_read_at) 
+             VALUES ($1, $2, 'member', $3, $4)`,
+            [roomId, userId, currentTime, currentTime]
+          );
+
+          // 시스템 메시지 생성 (누가 누구를 초대했는지)
+          const inviterInfo = await client.query(
+            `SELECT nickname, username FROM users WHERE id = $1`,
+            [invitedBy]
+          );
+          const invitedInfo = await client.query(
+            `SELECT nickname, username FROM users WHERE id = $1`,
+            [userId]
+          );
+
+          const inviterName =
+            inviterInfo.rows[0]?.nickname || inviterInfo.rows[0]?.username;
+          const invitedName =
+            invitedInfo.rows[0]?.nickname || invitedInfo.rows[0]?.username;
+
+          await client.query(
+            `INSERT INTO chat_messages (room_id, sender_id, content, message_type, created_at) 
+             VALUES ($1, $2, $3, 'system', $4)`,
+            [
+              roomId,
+              invitedBy,
+              `${inviterName}님이 ${invitedName}님을 초대했습니다.`,
+              currentTime,
+            ]
+          );
+
+          // 채팅방 last_message_at 업데이트
+          await client.query(
+            `UPDATE chat_rooms SET last_message_at = $1, updated_at = $2 WHERE id = $3`,
+            [currentTime, currentTime, roomId]
+          );
+
+          log(
+            "INFO",
+            `채팅방 ${roomId}에 사용자 ${userId} 추가됨 (초대자: ${invitedBy})`
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      log("ERROR", "채팅방 멤버 추가 실패", error);
       throw error;
     } finally {
       client.release();

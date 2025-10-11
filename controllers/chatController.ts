@@ -108,7 +108,12 @@ export class ChatController {
         is_group: is_group || false,
         name: name || undefined,
         member_ids: is_group
-          ? [userId, ...target_user_id]
+          ? [
+              userId,
+              ...(Array.isArray(target_user_id)
+                ? target_user_id
+                : [target_user_id]),
+            ]
           : [userId, target_user_id],
       };
 
@@ -371,6 +376,76 @@ export class ChatController {
       res.status(500).json({
         success: false,
         message: "채팅방 나가기 중 오류가 발생했습니다.",
+      });
+    }
+  }
+
+  /**
+   * 채팅방에 멤버 추가 (그룹 채팅 초대)
+   * POST /chat/rooms/:roomId/members
+   */
+  static async addMembersToRoom(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const { roomId } = req.params;
+      const { user_ids } = req.body;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "인증되지 않은 사용자입니다.",
+        });
+        return;
+      }
+
+      if (!roomId) {
+        res.status(400).json({
+          success: false,
+          message: "채팅방 ID가 필요합니다.",
+        });
+        return;
+      }
+
+      if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "초대할 사용자 ID 목록이 필요합니다.",
+        });
+        return;
+      }
+
+      // 채팅방 접근 권한 확인
+      const userRooms = await ChatModel.getUserRooms(userId, 1, 1000);
+      const hasAccess = userRooms.rooms.some((room) => room.id === roomId);
+
+      if (!hasAccess) {
+        res.status(403).json({
+          success: false,
+          message: "채팅방에 접근 권한이 없습니다.",
+        });
+        return;
+      }
+
+      // 멤버 추가
+      await ChatModel.addMembersToRoom(roomId, user_ids, userId);
+
+      log(
+        "INFO",
+        `사용자 ${userId}가 채팅방 ${roomId}에 멤버 ${user_ids.length}명 초대`
+      );
+
+      res.json({
+        success: true,
+        message: "멤버를 추가했습니다.",
+      });
+    } catch (error: any) {
+      log("ERROR", "멤버 추가 실패", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "멤버 추가 중 오류가 발생했습니다.",
       });
     }
   }

@@ -19,6 +19,13 @@ router.get(
   ChatController.getRoomMembers
 );
 
+// 채팅방에 멤버 추가 (그룹 채팅 초대)
+router.post(
+  "/rooms/:roomId/members",
+  authenticateToken,
+  ChatController.addMembersToRoom
+);
+
 // 채팅방 안읽은 메시지 수 조회
 router.get(
   "/rooms/:roomId/unread-count",
