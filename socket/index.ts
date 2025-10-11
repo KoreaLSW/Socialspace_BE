@@ -348,6 +348,10 @@ async function handleMarkAsRead(
 
   // 채팅방의 모든 멤버들에게 읽음 상태 전송 (자신 포함)
   if (room_id) {
+    // Socket.io room에 누가 있는지 확인
+    const roomSockets = await socket.nsp.in(room_id).fetchSockets();
+    log("DEBUG", `Room ${room_id}에 연결된 소켓 수: ${roomSockets.length}`);
+
     socket.nsp.to(room_id).emit("message_read", {
       message_id,
       user_id: userId,
@@ -358,7 +362,7 @@ async function handleMarkAsRead(
 
     log(
       "INFO",
-      `실시간 읽음 상태 브로드캐스트: ${message_id} by ${userId} in room ${room_id}`
+      `실시간 읽음 상태 브로드캐스트: ${message_id} by ${userId} in room ${room_id} (소켓 수: ${roomSockets.length})`
     );
   }
 
@@ -394,7 +398,16 @@ async function handleMarkAllAsRead(
   // 먼저 읽음 처리할 메시지들을 가져옴
   const unreadMessages = await ChatModel.getUnreadMessages(room_id, userId);
 
+  log(
+    "INFO",
+    `전체 읽음 처리 시작: ${room_id} by ${userId} - 안읽은 메시지 ${unreadMessages.length}개`
+  );
+
   await ChatModel.markAllMessagesAsRead(room_id, userId);
+
+  // Socket.io room에 누가 있는지 확인
+  const roomSockets = await socket.nsp.in(room_id).fetchSockets();
+  log("DEBUG", `Room ${room_id}에 연결된 소켓 수: ${roomSockets.length}`);
 
   // 각 메시지에 대해 개별 읽음 상태 이벤트 전송
   for (const message of unreadMessages) {
@@ -414,6 +427,11 @@ async function handleMarkAllAsRead(
     user: socket.user,
     read_at: new Date(),
   });
+
+  log(
+    "INFO",
+    `전체 읽음 처리 이벤트 전송 완료: ${room_id} by ${userId} - 개별: ${unreadMessages.length}개, 전체: 1개 (소켓 수: ${roomSockets.length})`
+  );
 
   callback?.({
     success: true,
