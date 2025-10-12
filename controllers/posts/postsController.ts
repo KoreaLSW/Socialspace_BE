@@ -905,4 +905,35 @@ export class PostsController {
       });
     }
   }
+
+  // 해시태그 검색
+  static async searchHashtags(req: Request, res: Response): Promise<void> {
+    try {
+      const { q, limit = 10 } = req.query;
+
+      if (!q || typeof q !== "string") {
+        res.status(400).json({
+          success: false,
+          message: "검색어가 필요합니다.",
+        });
+        return;
+      }
+
+      const searchResults = await HashtagModel.searchHashtags(
+        q,
+        parseInt(limit as string)
+      );
+
+      res.json({
+        success: true,
+        data: searchResults,
+      });
+    } catch (error) {
+      log("ERROR", "해시태그 검색 실패", error);
+      res.status(500).json({
+        success: false,
+        message: "해시태그 검색 중 오류가 발생했습니다.",
+      });
+    }
+  }
 }

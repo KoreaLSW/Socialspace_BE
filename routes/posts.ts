@@ -48,6 +48,9 @@ router.get(
   PostsController.getUserLikedPosts
 );
 
+// 해시태그 검색
+router.get("/hashtags/search", PostsController.searchHashtags);
+
 // 해시태그별 게시글 조회 (선택적 인증)
 router.get(
   "/hashtag/:hashtagId",

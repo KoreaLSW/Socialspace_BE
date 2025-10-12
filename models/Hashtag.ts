@@ -210,6 +210,41 @@ export class HashtagModel {
     }
   }
 
+  // 해시태그 검색
+  static async searchHashtags(
+    query: string,
+    limit: number = 10
+  ): Promise<Array<{ id: string; name: string; post_count: number }>> {
+    try {
+      const client = await pool.connect();
+
+      const result = await client.query(
+        `SELECT 
+          h.id,
+          h.tag as name,
+          COUNT(ph.post_id) as post_count
+        FROM hashtags h
+        LEFT JOIN post_hashtags ph ON h.id = ph.hashtag_id
+        WHERE h.tag ILIKE $1
+        GROUP BY h.id, h.tag
+        ORDER BY post_count DESC, h.tag ASC
+        LIMIT $2`,
+        [`%${query}%`, limit]
+      );
+
+      client.release();
+
+      return result.rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        post_count: parseInt(row.post_count) || 0,
+      }));
+    } catch (error) {
+      log("ERROR", "해시태그 검색 실패", error);
+      throw error;
+    }
+  }
+
   // 데이터베이스 행을 Hashtag 객체로 변환
   private static mapRowToHashtag(row: any): Hashtag {
     return {
