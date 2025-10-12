@@ -191,7 +191,8 @@ export class ChatModel {
   static async getUserRooms(
     userId: string,
     page: number = 1,
-    limit: number = 20
+    limit: number = 20,
+    search: string = ""
   ): Promise<{ rooms: ChatRoom[]; total: number }> {
     const client = await pool.connect();
     try {
@@ -221,18 +222,49 @@ export class ChatModel {
         params.push(...blockedUserIds);
       }
 
+      // 검색 조건 추가
+      let searchFilter = "";
+      if (search && search.trim()) {
+        const searchParam = `%${search.trim()}%`;
+        params.push(searchParam);
+        const searchParamIndex = params.length;
+
+        searchFilter = `
+          AND (
+            -- 그룹 채팅방 이름 검색
+            (cr.is_group = true AND cr.name ILIKE $${searchParamIndex})
+            OR
+            -- 1:1 채팅 상대방 이름 검색
+            EXISTS (
+              SELECT 1 FROM chat_room_members crm_other
+              JOIN users u ON crm_other.user_id = u.id
+              WHERE crm_other.room_id = cr.id 
+              AND crm_other.user_id != $1
+              AND (u.nickname ILIKE $${searchParamIndex} OR u.username ILIKE $${searchParamIndex})
+            )
+            OR
+            -- 메시지 내용 검색 (전체 대화 검색)
+            EXISTS (
+              SELECT 1 FROM chat_messages cm_search
+              WHERE cm_search.room_id = cr.id
+              AND cm_search.content ILIKE $${searchParamIndex}
+            )
+          )
+        `;
+      }
+
       // 전체 카운트 조회
       const countResult = await client.query(
-        `SELECT COUNT(*) FROM chat_rooms cr
+        `SELECT COUNT(DISTINCT cr.id) FROM chat_rooms cr
          JOIN chat_room_members crm ON cr.id = crm.room_id
-         WHERE crm.user_id = $1 ${blockFilter}`,
+         WHERE crm.user_id = $1 ${blockFilter} ${searchFilter}`,
         params
       );
 
       // 채팅방 목록 조회 (최근 메시지 순)
       params.push(limit, offset);
       const roomsResult = await client.query(
-        `SELECT cr.*, 
+        `SELECT DISTINCT cr.*, 
                 cm.content as last_message_content,
                 cm.message_type as last_message_type,
                 cm.created_at as last_message_created_at,
@@ -243,7 +275,7 @@ export class ChatModel {
          LEFT JOIN chat_messages cm ON cr.id = cm.room_id 
            AND cm.created_at = cr.last_message_at
          LEFT JOIN users sender ON cm.sender_id = sender.id
-         WHERE crm.user_id = $1 ${blockFilter}
+         WHERE crm.user_id = $1 ${blockFilter} ${searchFilter}
          ORDER BY cr.last_message_at DESC
          LIMIT $${params.length - 1} OFFSET $${params.length}`,
         params
