@@ -66,7 +66,23 @@ router.delete(
   ChatController.deleteMessage
 );
 
-// 메시지 검색
+// ========== 검색 관련 라우트 ==========
+
+// 모든 채팅방에서 검색
+router.get(
+  "/search/rooms",
+  authenticateToken,
+  ChatController.searchAllChatRooms
+);
+
+// 특정 채팅방에서 메시지 검색
+router.get(
+  "/search/messages/:roomId",
+  authenticateToken,
+  ChatController.searchMessagesInRoom
+);
+
+// 메시지 검색 (기존 - 호환성 유지)
 router.get(
   "/rooms/:roomId/search",
   authenticateToken,

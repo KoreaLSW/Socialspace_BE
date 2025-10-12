@@ -944,6 +944,224 @@ export class ChatModel {
   }
 
   /**
+   * 모든 채팅방에서 검색어와 일치하는 메시지가 있는 대화방 목록 조회
+   */
+  static async searchChatRooms(
+    userId: string,
+    query: string,
+    page: number = 1,
+    limit: number = 20
+  ): Promise<{
+    rooms: Array<ChatRoom & { message_count: number }>;
+    total: number;
+  }> {
+    const client = await pool.connect();
+    try {
+      const offset = (page - 1) * limit;
+
+      // 차단된 사용자 목록 조회
+      const blockedUserIds = await BlockModel.getAllBlockedRelationUserIds(
+        userId
+      );
+
+      // 차단 필터링 조건 생성
+      let blockFilter = "";
+      const params: any[] = [userId, `%${query}%`];
+
+      if (blockedUserIds.length > 0) {
+        const blockPlaceholders = blockedUserIds
+          .map((_, index) => `$${params.length + index + 1}`)
+          .join(", ");
+        blockFilter = `
+          AND NOT EXISTS (
+            SELECT 1 FROM chat_room_members crm_blocked 
+            WHERE crm_blocked.room_id = cr.id 
+            AND crm_blocked.user_id != $1
+            AND crm_blocked.user_id IN (${blockPlaceholders})
+          )
+        `;
+        params.push(...blockedUserIds);
+      }
+
+      // 전체 카운트 조회
+      const countResult = await client.query(
+        `SELECT COUNT(DISTINCT cr.id) FROM chat_rooms cr
+         JOIN chat_room_members crm ON cr.id = crm.room_id
+         JOIN chat_messages cm ON cr.id = cm.room_id
+         WHERE crm.user_id = $1 
+         AND cm.content ILIKE $2
+         AND cm.message_type != 'system'
+         ${blockFilter}`,
+        params
+      );
+
+      // 검색 결과 조회 (메시지 개수 포함)
+      params.push(limit, offset);
+      const roomsResult = await client.query(
+        `SELECT cr.*, 
+                COUNT(DISTINCT cm.id) as message_count,
+                cm_last.content as last_message_content,
+                cm_last.message_type as last_message_type,
+                cm_last.created_at as last_message_created_at,
+                sender.username as last_message_sender_username,
+                sender.nickname as last_message_sender_nickname
+         FROM chat_rooms cr
+         JOIN chat_room_members crm ON cr.id = crm.room_id
+         JOIN chat_messages cm ON cr.id = cm.room_id
+         LEFT JOIN chat_messages cm_last ON cr.id = cm_last.room_id 
+           AND cm_last.created_at = cr.last_message_at
+         LEFT JOIN users sender ON cm_last.sender_id = sender.id
+         WHERE crm.user_id = $1 
+         AND cm.content ILIKE $2
+         AND cm.message_type != 'system'
+         ${blockFilter}
+         GROUP BY cr.id, cr.is_group, cr.name, cr.last_message_at, cr.created_at, cr.updated_at,
+                  cm_last.content, cm_last.message_type, cm_last.created_at, 
+                  sender.username, sender.nickname
+         ORDER BY cr.last_message_at DESC
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params
+      );
+
+      const rooms = await Promise.all(
+        roomsResult.rows.map(async (row) => {
+          const room = this.mapRowToChatRoom(row);
+          const roomWithCount = {
+            ...room,
+            message_count: parseInt(row.message_count),
+          };
+
+          // 마지막 메시지 정보 추가
+          if (row.last_message_content) {
+            roomWithCount.last_message = {
+              id: "",
+              room_id: room.id,
+              sender_id: "",
+              content: row.last_message_content,
+              message_type: row.last_message_type,
+              created_at: row.last_message_created_at,
+              sender: {
+                id: "",
+                username: row.last_message_sender_username,
+                nickname: row.last_message_sender_nickname,
+              },
+            };
+          }
+
+          // 멤버 정보 조회 (차단된 사용자 제외)
+          roomWithCount.members = await this.getRoomMembers(
+            room.id,
+            blockedUserIds
+          );
+
+          // 안읽은 메시지 수 조회
+          roomWithCount.unread_count = await this.getUnreadCount(
+            room.id,
+            userId
+          );
+
+          return roomWithCount;
+        })
+      );
+
+      return {
+        rooms,
+        total: parseInt(countResult.rows[0].count),
+      };
+    } catch (error: any) {
+      log("ERROR", "채팅방 검색 실패", {
+        message: error?.message || "Unknown error",
+        stack: error?.stack,
+        userId: userId,
+        query: query,
+        error: error,
+      });
+      console.error("채팅방 검색 에러 상세:", error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * 특정 채팅방에서 검색어와 일치하는 메시지 목록 조회
+   */
+  static async searchMessagesInRoom(
+    roomId: string,
+    userId: string,
+    query: string,
+    page: number = 1,
+    limit: number = 50
+  ): Promise<{ messages: ChatMessage[]; total: number }> {
+    const client = await pool.connect();
+    try {
+      const offset = (page - 1) * limit;
+
+      // 사용자가 해당 채팅방의 멤버인지 확인
+      const memberCheck = await client.query(
+        `SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2`,
+        [roomId, userId]
+      );
+
+      if (memberCheck.rows.length === 0) {
+        throw new Error("채팅방에 접근 권한이 없습니다.");
+      }
+
+      // 전체 메시지 수 조회
+      const countResult = await client.query(
+        `SELECT COUNT(*) FROM chat_messages 
+         WHERE room_id = $1 
+         AND content ILIKE $2
+         AND message_type != 'system'`,
+        [roomId, `%${query}%`]
+      );
+
+      // 메시지 목록 조회 (최신순)
+      const messagesResult = await client.query(
+        `SELECT cm.*, u.username, u.nickname, u.profile_image
+         FROM chat_messages cm
+         JOIN users u ON cm.sender_id = u.id
+         WHERE cm.room_id = $1 
+         AND cm.content ILIKE $2
+         AND cm.message_type != 'system'
+         ORDER BY cm.created_at DESC
+         LIMIT $3 OFFSET $4`,
+        [roomId, `%${query}%`, limit, offset]
+      );
+
+      // 메시지에 읽음 상태 정보 추가
+      const messages = await Promise.all(
+        messagesResult.rows.map(async (row) => {
+          const message = this.mapRowToChatMessage(row);
+          message.read_by = await this.getReadStatusForMessage(
+            message.id,
+            client
+          );
+          return message;
+        })
+      );
+
+      // 시간순으로 정렬
+      messages.reverse();
+
+      return {
+        messages,
+        total: parseInt(countResult.rows[0].count),
+      };
+    } catch (error: any) {
+      log("ERROR", "채팅방 메시지 검색 실패", {
+        message: error?.message || "Unknown error",
+        roomId: roomId,
+        userId: userId,
+        query: query,
+      });
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * 채팅방에서 나가기 (멤버 삭제)
    */
   static async leaveRoom(roomId: string, userId: string): Promise<void> {

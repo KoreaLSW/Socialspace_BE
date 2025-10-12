@@ -276,7 +276,109 @@ export class ChatController {
   }
 
   /**
-   * 메시지 검색
+   * 모든 채팅방에서 검색
+   * GET /chat/search/rooms?q=검색어
+   */
+  static async searchAllChatRooms(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const { q: query, page = 1, limit = 20 } = req.query;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "인증되지 않은 사용자입니다.",
+        });
+        return;
+      }
+
+      if (!query || typeof query !== "string") {
+        res.status(400).json({
+          success: false,
+          message: "검색어가 필요합니다.",
+        });
+        return;
+      }
+
+      const result = await ChatModel.searchChatRooms(
+        userId,
+        query,
+        parseInt(page as string),
+        parseInt(limit as string)
+      );
+
+      res.json({
+        success: true,
+        data: result,
+        message: "채팅방 검색이 완료되었습니다.",
+      });
+    } catch (error: any) {
+      log("ERROR", "채팅방 검색 실패", error);
+      res.status(500).json({
+        success: false,
+        message: "채팅방 검색 중 오류가 발생했습니다.",
+        error: error?.message,
+      });
+    }
+  }
+
+  /**
+   * 특정 채팅방에서 메시지 검색
+   * GET /chat/search/messages/:roomId?q=검색어
+   */
+  static async searchMessagesInRoom(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const { roomId } = req.params;
+      const { q: query, page = 1, limit = 50 } = req.query;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "인증되지 않은 사용자입니다.",
+        });
+        return;
+      }
+
+      if (!query || typeof query !== "string") {
+        res.status(400).json({
+          success: false,
+          message: "검색어가 필요합니다.",
+        });
+        return;
+      }
+
+      const result = await ChatModel.searchMessagesInRoom(
+        roomId,
+        userId,
+        query,
+        parseInt(page as string),
+        parseInt(limit as string)
+      );
+
+      res.json({
+        success: true,
+        data: result,
+        message: "메시지 검색이 완료되었습니다.",
+      });
+    } catch (error: any) {
+      log("ERROR", "채팅방 메시지 검색 실패", error);
+      res.status(500).json({
+        success: false,
+        message: "메시지 검색 중 오류가 발생했습니다.",
+        error: error?.message,
+      });
+    }
+  }
+
+  /**
+   * 메시지 검색 (기존 메서드 - 호환성 유지)
    * GET /chat/rooms/:roomId/search?q=검색어
    */
   static async searchMessages(
