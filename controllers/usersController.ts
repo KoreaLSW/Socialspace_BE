@@ -394,4 +394,33 @@ export class UsersController {
       });
     }
   }
+
+  // 회원 탈퇴 (본인 계정 삭제)
+  static async deleteMe(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "인증이 필요합니다" });
+        return;
+      }
+
+      const deleted = await UserModel.deleteById(userId);
+      if (!deleted) {
+        res
+          .status(404)
+          .json({ success: false, message: "사용자를 찾을 수 없습니다" });
+        return;
+      }
+
+      res.json({ success: true, message: "회원 탈퇴가 완료되었습니다" });
+    } catch (error) {
+      log("ERROR", "회원 탈퇴 실패", error);
+      res
+        .status(500)
+        .json({ success: false, message: "회원 탈퇴 중 오류가 발생했습니다" });
+    }
+  }
 }

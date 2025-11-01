@@ -211,7 +211,7 @@ export const getFollowing = async (
   }
 };
 
-// 상호 팔로우 목록 조회
+// 맞팔로우 목록 조회
 export const getMutualFollows = async (
   req: AuthenticatedRequest,
   res: Response
@@ -233,9 +233,9 @@ export const getMutualFollows = async (
       pagination,
     });
   } catch (error) {
-    log("ERROR", "상호 팔로우 목록 조회 실패", error);
+    log("ERROR", "맞팔로우 목록 조회 실패", error);
     res
       .status(500)
-      .json({ success: false, message: "상호 팔로우 목록 조회 중 오류" });
+      .json({ success: false, message: "맞팔로우 목록 조회 중 오류" });
   }
 };

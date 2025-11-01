@@ -1,6 +1,8 @@
 import { pool } from "../config/database";
 import { log } from "../utils/logger";
 import { getKoreanTime } from "../utils/time";
+import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto";
 
 // NextAuth에서 전송하는 Google 사용자 정보
 export interface NextAuthGoogleUser {
@@ -9,6 +11,14 @@ export interface NextAuthGoogleUser {
   name: string;
   picture?: string;
   emailVerified: boolean;
+}
+
+// 일반 회원가입 사용자 정보
+export interface LocalSignupUser {
+  email: string;
+  password: string;
+  username: string;
+  nickname?: string;
 }
 
 export interface NotificationPreferences {
@@ -30,7 +40,7 @@ export interface User {
   isCustomProfileImage: boolean; // 사용자가 직접 설정한 프로필 이미지인지 여부
   visibility: string;
   followApprovalMode?: string; // 팔로우 승인 방식 ('auto' | 'manual')
-  showMutualFollow?: boolean; // 상호 팔로우 표시 여부
+  showMutualFollow?: boolean; // 맞팔로우 표시 여부
   notificationPreferences?: NotificationPreferences; // 알림 설정
   role: string;
   emailVerified: boolean;
@@ -75,7 +85,20 @@ export class UserModel {
 
       return this.mapRowToUser(result.rows[0]);
     } catch (error) {
-      log("ERROR", "사용자 조회 실패 (이메일)", error);
+      console.error("❌ findByEmail 에러:", error);
+      console.error(
+        "에러 메시지:",
+        error instanceof Error ? error.message : String(error)
+      );
+      console.error(
+        "에러 스택:",
+        error instanceof Error ? error.stack : "No stack"
+      );
+      log(
+        "ERROR",
+        "사용자 조회 실패 (이메일)",
+        error instanceof Error ? error.message : String(error)
+      );
       throw error;
     }
   }
@@ -96,7 +119,54 @@ export class UserModel {
 
       return this.mapRowToUser(result.rows[0]);
     } catch (error) {
-      log("ERROR", "사용자 조회 실패 (사용자명)", error);
+      console.error("❌ findByUsername 에러:", error);
+      console.error(
+        "에러 메시지:",
+        error instanceof Error ? error.message : String(error)
+      );
+      console.error(
+        "에러 스택:",
+        error instanceof Error ? error.stack : "No stack"
+      );
+      log(
+        "ERROR",
+        "사용자 조회 실패 (사용자명)",
+        error instanceof Error ? error.message : String(error)
+      );
+      throw error;
+    }
+  }
+
+  // 닉네임으로 찾기
+  static async findByNickname(nickname: string): Promise<User | null> {
+    try {
+      const client = await pool.connect();
+      const result = await client.query(
+        "SELECT * FROM users WHERE nickname = $1",
+        [nickname]
+      );
+      client.release();
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return this.mapRowToUser(result.rows[0]);
+    } catch (error) {
+      console.error("❌ findByNickname 에러:", error);
+      console.error(
+        "에러 메시지:",
+        error instanceof Error ? error.message : String(error)
+      );
+      console.error(
+        "에러 스택:",
+        error instanceof Error ? error.stack : "No stack"
+      );
+      log(
+        "ERROR",
+        "사용자 조회 실패 (닉네임)",
+        error instanceof Error ? error.message : String(error)
+      );
       throw error;
     }
   }
@@ -120,17 +190,23 @@ export class UserModel {
       const koreanTime = getKoreanTime();
 
       const result = await client.query(
-        `INSERT INTO users (id, email, username, nickname, bio, profile_image, is_custom_profile_image, created_at, updated_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
-         RETURNING *`,
+        `INSERT INTO users (
+          id, email, username, nickname, bio, profile_image, 
+          is_custom_profile_image, visibility, role, auth_provider,
+          created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) 
+        RETURNING *`,
         [
           userData.googleId, // Google ID를 직접 id로 사용
           userData.email,
           username,
-          userData.name, // nickname으로 사용
+          userData.name || null, // nickname으로 사용
           "", // bio 기본값으로 빈 문자열
           userData.picture || null,
           false, // is_custom_profile_image 기본값은 false (구글 기본 이미지)
+          "public", // visibility 기본값
+          "user", // role 기본값
+          "google", // ⭐ auth_provider: 구글 로그인임을 명시
           koreanTime, // 한국시간으로 created_at 설정
           koreanTime, // 한국시간으로 updated_at 설정
         ]
@@ -229,6 +305,29 @@ export class UserModel {
       return this.mapRowToUser(result.rows[0]);
     } catch (error) {
       log("ERROR", "사용자 업데이트 실패", error);
+      throw error;
+    }
+  }
+
+  // 사용자 삭제
+  static async deleteById(id: string): Promise<boolean> {
+    try {
+      const client = await pool.connect();
+      const result = await client.query("DELETE FROM users WHERE id = $1", [
+        id,
+      ]);
+      client.release();
+
+      // rowCount가 1 이상이면 삭제 성공
+      const deleted = (result as any).rowCount
+        ? (result as any).rowCount > 0
+        : true;
+      if (deleted) {
+        log("INFO", "사용자 삭제", { id });
+      }
+      return deleted;
+    } catch (error) {
+      log("ERROR", "사용자 삭제 실패", error);
       throw error;
     }
   }
@@ -460,36 +559,228 @@ export class UserModel {
     }
   }
 
+  // ===== 일반 회원가입 관련 메서드 =====
+
+  // 일반 회원가입 (로컬 인증)
+  static async createLocalUser(userData: LocalSignupUser): Promise<User> {
+    try {
+      const client = await pool.connect();
+
+      // 이메일 중복 확인
+      const existingUser = await this.findByEmail(userData.email);
+      if (existingUser) {
+        throw new Error("이미 사용 중인 이메일입니다");
+      }
+
+      // 사용자명 중복 확인
+      const existingUsername = await this.findByUsername(userData.username);
+      if (existingUsername) {
+        throw new Error("이미 사용 중인 사용자명입니다");
+      }
+
+      // 닉네임 중복 확인
+      const nickname = userData.nickname || userData.username;
+      const existingNickname = await this.findByNickname(nickname);
+      if (existingNickname) {
+        throw new Error("이미 사용 중인 닉네임입니다");
+      }
+
+      // 비밀번호 해싱
+      const saltRounds = 10;
+      const passwordHash = await bcrypt.hash(userData.password, saltRounds);
+
+      // UUID 생성
+      const userId = randomUUID();
+      const koreanTime = getKoreanTime();
+
+      const result = await client.query(
+        `INSERT INTO users (
+          id, email, username, nickname, bio, profile_image, 
+          is_custom_profile_image, password_hash, auth_provider, 
+          created_at, updated_at
+        ) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
+        RETURNING *`,
+        [
+          userId,
+          userData.email,
+          userData.username,
+          nickname, // 중복 체크 완료된 닉네임 사용
+          "", // bio 기본값
+          null, // profile_image 기본값
+          false, // is_custom_profile_image
+          passwordHash,
+          "local", // auth_provider
+          koreanTime,
+          koreanTime,
+        ]
+      );
+      client.release();
+
+      log("INFO", "일반 회원가입 성공", {
+        id: userId,
+        email: userData.email,
+        username: userData.username,
+        createdAt: koreanTime,
+      });
+
+      return this.mapRowToUser(result.rows[0]);
+    } catch (error) {
+      log("ERROR", "일반 회원가입 실패", error);
+      throw error;
+    }
+  }
+
+  // 로컬 로그인 (이메일 + 비밀번호 검증)
+  static async findByEmailAndPassword(
+    email: string,
+    password: string
+  ): Promise<User | null> {
+    try {
+      const client = await pool.connect();
+      const result = await client.query(
+        "SELECT * FROM users WHERE email = $1 AND auth_provider = $2",
+        [email, "local"]
+      );
+      client.release();
+
+      if (result.rows.length === 0) {
+        log("WARN", "로그인 실패 - 사용자 없음", { email });
+        return null;
+      }
+
+      const user = result.rows[0];
+
+      // 비밀번호 확인
+      const isPasswordValid = await bcrypt.compare(
+        password,
+        user.password_hash
+      );
+      if (!isPasswordValid) {
+        log("WARN", "로그인 실패 - 비밀번호 불일치", { email });
+        return null;
+      }
+
+      log("INFO", "로컬 로그인 성공", { email, userId: user.id });
+      return this.mapRowToUser(user);
+    } catch (error) {
+      log("ERROR", "로컬 로그인 실패", error);
+      throw error;
+    }
+  }
+
+  // 비밀번호 변경
+  static async updatePassword(
+    userId: string,
+    oldPassword: string,
+    newPassword: string
+  ): Promise<boolean> {
+    try {
+      const client = await pool.connect();
+
+      // 현재 비밀번호 확인
+      const result = await client.query(
+        "SELECT password_hash FROM users WHERE id = $1 AND auth_provider = $2",
+        [userId, "local"]
+      );
+
+      if (result.rows.length === 0) {
+        client.release();
+        throw new Error("사용자를 찾을 수 없거나 로컬 계정이 아닙니다");
+      }
+
+      const isPasswordValid = await bcrypt.compare(
+        oldPassword,
+        result.rows[0].password_hash
+      );
+      if (!isPasswordValid) {
+        client.release();
+        throw new Error("현재 비밀번호가 일치하지 않습니다");
+      }
+
+      // 새 비밀번호 해싱
+      const saltRounds = 10;
+      const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+      const koreanTime = getKoreanTime();
+
+      // 비밀번호 업데이트
+      await client.query(
+        "UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3",
+        [newPasswordHash, koreanTime, userId]
+      );
+      client.release();
+
+      log("INFO", "비밀번호 변경 성공", { userId });
+      return true;
+    } catch (error) {
+      log("ERROR", "비밀번호 변경 실패", error);
+      throw error;
+    }
+  }
+
   // 데이터베이스 행을 User 객체로 변환
   private static mapRowToUser(row: any): User {
-    // 알림 설정 기본값
-    const defaultNotificationPreferences: NotificationPreferences = {
-      follow: true,
-      followee_post: true,
-      post_liked: true,
-      comment_liked: true,
-      post_commented: true,
-      mention_comment: true,
-    };
+    try {
+      // 알림 설정 기본값
+      const defaultNotificationPreferences: NotificationPreferences = {
+        follow: true,
+        followee_post: true,
+        post_liked: true,
+        comment_liked: true,
+        post_commented: true,
+        mention_comment: true,
+      };
 
-    return {
-      id: row.id, // Google ID
-      email: row.email,
-      username: row.username,
-      nickname: row.nickname,
-      bio: row.bio,
-      profileImage: row.profile_image,
-      isCustomProfileImage: row.is_custom_profile_image || false,
-      visibility: row.visibility,
-      followApprovalMode: row.follow_approval_mode || "auto",
-      showMutualFollow: row.show_mutual_follow !== false, // 기본값 true
-      notificationPreferences: row.notification_preferences
-        ? { ...defaultNotificationPreferences, ...row.notification_preferences }
-        : defaultNotificationPreferences,
-      role: row.role,
-      emailVerified: row.email_verified,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
-    };
+      // notification_preferences 파싱 (JSON 문자열인 경우)
+      let notificationPrefs = defaultNotificationPreferences;
+      if (row.notification_preferences) {
+        try {
+          const parsed =
+            typeof row.notification_preferences === "string"
+              ? JSON.parse(row.notification_preferences)
+              : row.notification_preferences;
+          notificationPrefs = {
+            ...defaultNotificationPreferences,
+            ...parsed,
+          };
+        } catch (parseError) {
+          console.warn("⚠️ notification_preferences 파싱 실패:", parseError);
+        }
+      }
+
+      // 날짜 파싱 (null 처리)
+      const createdAt = row.created_at ? new Date(row.created_at) : new Date();
+      const updatedAt = row.updated_at ? new Date(row.updated_at) : new Date();
+
+      return {
+        id: row.id, // Google ID 또는 UUID
+        email: row.email,
+        username: row.username,
+        nickname: row.nickname,
+        bio: row.bio,
+        profileImage: row.profile_image,
+        isCustomProfileImage: row.is_custom_profile_image || false,
+        visibility: row.visibility,
+        followApprovalMode: row.follow_approval_mode || "auto",
+        showMutualFollow: row.show_mutual_follow !== false, // 기본값 true
+        notificationPreferences: notificationPrefs,
+        role: row.role || "user",
+        emailVerified: row.email_verified || false,
+        createdAt,
+        updatedAt,
+      };
+    } catch (error) {
+      console.error("❌ mapRowToUser 에러:", error);
+      console.error(
+        "에러 메시지:",
+        error instanceof Error ? error.message : String(error)
+      );
+      console.error("row 데이터:", JSON.stringify(row, null, 2));
+      throw new Error(
+        `사용자 데이터 매핑 실패: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 }

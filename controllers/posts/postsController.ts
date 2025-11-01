@@ -936,4 +936,28 @@ export class PostsController {
       });
     }
   }
+
+  // 인기 해시태그 조회 (게시물 수 기준)
+  static async getPopularHashtags(req: Request, res: Response): Promise<void> {
+    try {
+      const limit = parseInt(req.query.limit as string) || 5;
+
+      const popularHashtags = await HashtagModel.getPopular(limit);
+
+      res.json({
+        success: true,
+        data: popularHashtags.map((h) => ({
+          id: h.id,
+          name: h.tag,
+          post_count: h.post_count,
+        })),
+      });
+    } catch (error) {
+      log("ERROR", "인기 해시태그 조회 실패", error);
+      res.status(500).json({
+        success: false,
+        message: "인기 해시태그 조회 중 오류가 발생했습니다.",
+      });
+    }
+  }
 }

@@ -72,4 +72,7 @@ router.patch(
   NotificationPreferencesController.togglePreference
 );
 
+// 회원 탈퇴 (본인 계정 삭제)
+router.delete("/me", authenticateToken, UsersController.deleteMe);
+
 export default router;

@@ -10,11 +10,25 @@ import {
   getFollowRequests,
   approveFollowRequest,
   rejectFollowRequest,
+  localSignup,
+  localLogin,
+  checkDuplicate,
 } from "../controllers/authController";
 import { authenticateToken, optionalAuth } from "../middleware/auth";
 
 const router = Router();
 
+// ===== 일반 회원가입/로그인 =====
+// 중복 체크 (이메일, 사용자명, 닉네임)
+router.get("/check-duplicate", checkDuplicate);
+
+// 일반 회원가입 (이메일 + 비밀번호)
+router.post("/signup", localSignup);
+
+// 일반 로그인 (이메일 + 비밀번호)
+router.post("/login", localLogin);
+
+// ===== Google OAuth =====
 // Google OAuth 로그인 처리 (사용자 정보 생성/업데이트)
 router.post("/google", googleLogin);
 

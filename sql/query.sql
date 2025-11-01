@@ -19,9 +19,14 @@ CREATE TABLE IF NOT EXISTS public.users
     show_mutual_follow boolean DEFAULT true,
     notification_preferences jsonb DEFAULT '{"like": true, "push": true, "email": false, "follow": true, "comment": true, "mention": true}'::jsonb,
     showmutualfollow boolean DEFAULT true,
+    password_hash character varying(255) COLLATE pg_catalog."default",
+    auth_provider character varying(20) COLLATE pg_catalog."default" DEFAULT 'local'::character varying,
     CONSTRAINT users_pkey PRIMARY KEY (id),
     CONSTRAINT users_email_key UNIQUE (email),
-    CONSTRAINT users_username_key UNIQUE (username)
+    CONSTRAINT users_nickname_key UNIQUE (nickname),
+    CONSTRAINT users_username_key UNIQUE (username),
+    CONSTRAINT check_auth_provider_values CHECK (auth_provider::text = ANY (ARRAY['local'::character varying, 'google'::character varying]::text[])),
+    CONSTRAINT check_local_user_password CHECK (auth_provider::text = 'local'::text AND password_hash IS NOT NULL OR auth_provider::text = 'google'::text AND password_hash IS NULL OR (auth_provider::text <> ALL (ARRAY['local'::character varying, 'google'::character varying]::text[])))
 )
 TABLESPACE pg_default;
 ALTER TABLE IF EXISTS public.users
@@ -51,7 +56,7 @@ COMMENT ON COLUMN public.users.is_custom_profile_image
 COMMENT ON COLUMN public.users.follow_approval_mode
     IS '팔로우 승인 방식 (auto: 자동 승인, manual: 수동 승인)';
 COMMENT ON COLUMN public.users.show_mutual_follow
-    IS '상호 팔로우 관계 표시 여부 (true: 표시, false: 숨김)';
+    IS '맞팔로우 관계 표시 여부 (true: 표시, false: 숨김)';
 COMMENT ON COLUMN public.users.notification_preferences
     IS '사용자 알림 설정 (JSON 형태)
 - follow: 팔로우 알림 (누군가 나를 팔로우함)
@@ -60,10 +65,31 @@ COMMENT ON COLUMN public.users.notification_preferences
 - comment_liked: 댓글 좋아요 알림 (내 댓글에 좋아요)
 - post_commented: 게시물 댓글 알림 (내 게시물에 댓글)
 - mention_comment: 멘션 알림 (댓글에서 멘션됨)';
+COMMENT ON COLUMN public.users.password_hash
+    IS '비밀번호 해시 (bcrypt 60자, local 인증 전용, Google 사용자는 NULL)';
+COMMENT ON COLUMN public.users.auth_provider
+    IS '인증 제공자: google (Google OAuth), local (이메일/비밀번호)';
+
+CREATE INDEX IF NOT EXISTS idx_users_auth_provider
+    ON public.users USING btree
+    (auth_provider COLLATE pg_catalog."default" ASC NULLS LAST)
+    TABLESPACE pg_default;
+
+CREATE INDEX IF NOT EXISTS idx_users_email_auth_provider
+    ON public.users USING btree
+    (email COLLATE pg_catalog."default" ASC NULLS LAST, auth_provider COLLATE pg_catalog."default" ASC NULLS LAST)
+    TABLESPACE pg_default;
+
+CREATE INDEX IF NOT EXISTS idx_users_nickname
+    ON public.users USING btree
+    (nickname COLLATE pg_catalog."default" ASC NULLS LAST)
+    TABLESPACE pg_default;
+
 CREATE INDEX IF NOT EXISTS idx_users_notification_preferences
     ON public.users USING gin
     (notification_preferences)
     TABLESPACE pg_default;
+
 CREATE OR REPLACE TRIGGER trigger_create_default_chat_settings
     AFTER INSERT
     ON public.users

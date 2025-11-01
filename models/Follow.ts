@@ -646,7 +646,7 @@ export class FollowModel {
     }
   }
 
-  // 상호 팔로우 관계 확인
+  // 맞팔로우 관계 확인
   static async isMutualFollow(
     userId1: string,
     userId2: string
@@ -670,12 +670,12 @@ export class FollowModel {
       // 둘 다 서로를 팔로우하고 있는 경우
       return user1_follows_user2 > 0 && user2_follows_user1 > 0;
     } catch (error) {
-      log("ERROR", "상호 팔로우 관계 확인 실패", error);
+      log("ERROR", "맞팔로우 관계 확인 실패", error);
       throw error;
     }
   }
 
-  // 상호 팔로우 목록 조회
+  // 맞팔로우 목록 조회
   static async getMutualFollows(
     userId: string,
     page: number = 1,
@@ -700,7 +700,7 @@ export class FollowModel {
       const client = await pool.connect();
       const offset = (page - 1) * limit;
 
-      // 총 상호 팔로우 수 조회
+      // 총 맞팔로우 수 조회
       const countResult = await client.query(
         `SELECT COUNT(DISTINCT u.id)
          FROM users u
@@ -711,7 +711,7 @@ export class FollowModel {
       );
       const total = parseInt(countResult.rows[0].count, 10) || 0;
 
-      // 상호 팔로우 목록 조회
+      // 맞팔로우 목록 조회
       const result = await client.query(
         `SELECT 
            u.id, 
@@ -741,7 +741,7 @@ export class FollowModel {
         },
       };
     } catch (error) {
-      log("ERROR", "상호 팔로우 목록 조회 실패", error);
+      log("ERROR", "맞팔로우 목록 조회 실패", error);
       throw error;
     }
   }

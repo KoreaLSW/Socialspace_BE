@@ -50,6 +50,8 @@ router.get(
 
 // 해시태그 검색
 router.get("/hashtags/search", PostsController.searchHashtags);
+// 인기 해시태그 조회
+router.get("/hashtags/popular", PostsController.getPopularHashtags);
 
 // 해시태그별 게시글 조회 (선택적 인증)
 router.get(

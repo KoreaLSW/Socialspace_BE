@@ -1,10 +1,16 @@
 import { Request, Response } from "express";
-import { UserModel, User, NextAuthGoogleUser } from "../models/User";
+import {
+  UserModel,
+  User,
+  NextAuthGoogleUser,
+  LocalSignupUser,
+} from "../models/User";
 import { FollowModel } from "../models/Follow";
 import { BlockModel } from "../models/Block";
 import { log } from "../utils/logger";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { pool } from "../config/database";
+import { generateToken } from "../utils/jwt";
 
 // 이메일에서 고유한 사용자명 생성
 const generateUniqueUsername = async (email: string): Promise<string> => {
@@ -50,10 +56,15 @@ const getPostsCount = async (userId: string): Promise<number> => {
 // Google OAuth 로그인 처리 (사용자 정보 생성/업데이트)
 export const googleLogin = async (req: Request, res: Response) => {
   try {
+    console.log("🔵 Google 로그인 요청 받음:", req.body);
     const { googleId, email, name, image } = req.body;
 
     // 필수 데이터 검증
     if (!googleId || !email) {
+      console.error("❌ 필수 정보 누락:", {
+        googleId: !!googleId,
+        email: !!email,
+      });
       res.status(400).json({
         success: false,
         message: "필수 정보가 누락되었습니다 (googleId, email)",
@@ -62,16 +73,24 @@ export const googleLogin = async (req: Request, res: Response) => {
     }
 
     // 기존 사용자 확인
+    console.log("🔍 기존 사용자 확인:", email);
     let user = await UserModel.findByEmail(email);
 
     if (user) {
+      console.log("✅ 기존 사용자 발견:", {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+      });
       // 프로필 이미지 업데이트 (사용자가 직접 설정한 이미지가 아닌 경우에만)
       if (image && user.profileImage !== image && !user.isCustomProfileImage) {
+        console.log("🔄 프로필 이미지 업데이트");
         user.profileImage = image;
         await UserModel.update(user.id, { profileImage: image });
       }
     } else {
       // 새 사용자 생성
+      console.log("🆕 새 사용자 생성 시작");
       const newUser: NextAuthGoogleUser = {
         googleId,
         email,
@@ -81,6 +100,12 @@ export const googleLogin = async (req: Request, res: Response) => {
       };
 
       user = await UserModel.create(newUser);
+      console.log("✅ 새 사용자 DB에 저장 완료:", {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        nickname: user.nickname,
+      });
     }
 
     res.json({
@@ -759,6 +784,295 @@ export const rejectFollowRequest = async (
     res.status(400).json({
       success: false,
       message: error.message || "팔로우 요청 거절 중 오류가 발생했습니다",
+    });
+  }
+};
+
+// ===== 일반 회원가입/로그인 =====
+
+// 일반 회원가입 (이메일 + 비밀번호)
+export const localSignup = async (req: Request, res: Response) => {
+  try {
+    const { email, password, username, nickname } = req.body;
+
+    // 필수 데이터 검증
+    if (!email || !password || !username) {
+      res.status(400).json({
+        success: false,
+        message: "필수 정보가 누락되었습니다 (email, password, username)",
+      });
+      return;
+    }
+
+    // 이메일 형식 검증
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      res.status(400).json({
+        success: false,
+        message: "올바른 이메일 형식이 아닙니다",
+      });
+      return;
+    }
+
+    // 비밀번호 강도 검증 (최소 6자)
+    if (password.length < 6) {
+      res.status(400).json({
+        success: false,
+        message: "비밀번호는 최소 6자 이상이어야 합니다",
+      });
+      return;
+    }
+
+    // 사용자명 검증 (영문, 숫자, 언더스코어만 허용, 3-20자)
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    if (!usernameRegex.test(username)) {
+      res.status(400).json({
+        success: false,
+        message:
+          "사용자명은 영문, 숫자, 언더스코어만 사용 가능하며 3-20자여야 합니다",
+      });
+      return;
+    }
+
+    // 사용자 생성
+    const userData: LocalSignupUser = {
+      email,
+      password,
+      username,
+      nickname,
+    };
+
+    const user = await UserModel.createLocalUser(userData);
+
+    // JWT 토큰 생성
+    const token = generateToken({
+      userId: user.id,
+      email: user.email,
+      username: user.username,
+      authProvider: "local",
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "회원가입이 완료되었습니다",
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          nickname: user.nickname,
+          bio: user.bio,
+          profileImage: user.profileImage,
+          visibility: user.visibility,
+          role: user.role,
+          createdAt: user.createdAt,
+        },
+        token,
+      },
+    });
+  } catch (error: any) {
+    log("ERROR", "일반 회원가입 실패", error);
+
+    // 중복 이메일/사용자명/닉네임 에러 처리
+    if (error.message?.includes("이미 사용 중인")) {
+      res.status(409).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+
+    // PostgreSQL UNIQUE 제약조건 위반 에러 처리
+    if ((error as any).code === "23505") {
+      let message = "중복된 값이 존재합니다";
+      if ((error as any).detail?.includes("nickname")) {
+        message = "이미 사용 중인 닉네임입니다";
+      } else if ((error as any).detail?.includes("username")) {
+        message = "이미 사용 중인 사용자명입니다";
+      } else if ((error as any).detail?.includes("email")) {
+        message = "이미 사용 중인 이메일입니다";
+      }
+      res.status(409).json({
+        success: false,
+        message: message,
+      });
+      return;
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "회원가입 처리 중 오류가 발생했습니다",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// 일반 로그인 (이메일 + 비밀번호)
+export const localLogin = async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+
+    // 필수 데이터 검증
+    if (!email || !password) {
+      res.status(400).json({
+        success: false,
+        message: "이메일과 비밀번호를 입력해주세요",
+      });
+      return;
+    }
+
+    // 사용자 인증
+    const user = await UserModel.findByEmailAndPassword(email, password);
+
+    if (!user) {
+      res.status(401).json({
+        success: false,
+        message: "이메일 또는 비밀번호가 일치하지 않습니다",
+      });
+      return;
+    }
+
+    // JWT 토큰 생성
+    const token = generateToken({
+      userId: user.id,
+      email: user.email,
+      username: user.username,
+      authProvider: "local",
+    });
+
+    res.json({
+      success: true,
+      message: "로그인 성공",
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          nickname: user.nickname,
+          bio: user.bio,
+          profileImage: user.profileImage,
+          visibility: user.visibility,
+          followApprovalMode: user.followApprovalMode,
+          showMutualFollow: user.showMutualFollow,
+          role: user.role,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+        },
+        token,
+      },
+    });
+  } catch (error) {
+    log("ERROR", "일반 로그인 실패", error);
+    res.status(500).json({
+      success: false,
+      message: "로그인 처리 중 오류가 발생했습니다",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// 중복 체크 API (이메일, 사용자명, 닉네임)
+export const checkDuplicate = async (req: Request, res: Response) => {
+  try {
+    console.log("🔍 중복 체크 요청:", req.query);
+    const { type, value } = req.query;
+
+    // 필수 파라미터 검증
+    if (!type || !value) {
+      console.warn("⚠️ 필수 파라미터 누락:", { type, value });
+      res.status(400).json({
+        success: false,
+        message: "type과 value 파라미터가 필요합니다",
+      });
+      return;
+    }
+
+    // type 검증
+    if (!["email", "username", "nickname"].includes(type as string)) {
+      console.warn("⚠️ 잘못된 type:", type);
+      res.status(400).json({
+        success: false,
+        message: "type은 email, username, nickname 중 하나여야 합니다",
+      });
+      return;
+    }
+
+    let exists = false;
+    const valueStr = value as string;
+
+    // 타입별 중복 체크
+    console.log(`🔍 ${type} 중복 체크 시작:`, valueStr);
+    switch (type) {
+      case "email":
+        try {
+          const userByEmail = await UserModel.findByEmail(valueStr);
+          exists = !!userByEmail;
+          console.log(`✅ email 중복 체크 완료:`, { exists });
+        } catch (error) {
+          console.error("❌ email 조회 실패:", error);
+          throw error;
+        }
+        break;
+
+      case "username":
+        try {
+          const userByUsername = await UserModel.findByUsername(valueStr);
+          exists = !!userByUsername;
+          console.log(`✅ username 중복 체크 완료:`, { exists });
+        } catch (error) {
+          console.error("❌ username 조회 실패:", error);
+          throw error;
+        }
+        break;
+
+      case "nickname":
+        try {
+          const userByNickname = await UserModel.findByNickname(valueStr);
+          exists = !!userByNickname;
+          console.log(`✅ nickname 중복 체크 완료:`, { exists });
+        } catch (error) {
+          console.error("❌ nickname 조회 실패:", error);
+          throw error;
+        }
+        break;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        exists,
+        available: !exists,
+        message: exists
+          ? `이미 사용 중인 ${
+              type === "email"
+                ? "이메일"
+                : type === "username"
+                ? "사용자명"
+                : "닉네임"
+            }입니다`
+          : `사용 가능한 ${
+              type === "email"
+                ? "이메일"
+                : type === "username"
+                ? "사용자명"
+                : "닉네임"
+            }입니다`,
+      },
+    });
+  } catch (error) {
+    console.error("❌ 중복 체크 중 오류 발생:", error);
+    log("ERROR", "중복 체크 실패", error);
+
+    // 더 자세한 에러 정보 출력
+    if (error instanceof Error) {
+      console.error("에러 메시지:", error.message);
+      console.error("에러 스택:", error.stack);
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "중복 체크 중 오류가 발생했습니다",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
