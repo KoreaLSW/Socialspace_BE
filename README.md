@@ -1,198 +1,114 @@
-# SocialSpace Backend API
+# SocialSpace Backend
 
-A modern, type-safe Node.js backend application built with Express.js, TypeScript, and PostgreSQL.
+Express.js와 TypeScript로 만든 RESTful API 서버입니다. PostgreSQL 데이터베이스와 Socket.IO를 사용해서 실시간 채팅과 알림 기능을 제공합니다.
 
-## 🚀 Features
+## 기술 스택
 
-- **TypeScript**: Full type safety and modern JavaScript features
-- **Express.js**: Fast, unopinionated web framework
-- **PostgreSQL**: Robust database with connection pooling
-- **Structured Logging**: Professional logging system with metadata
-- **Error Handling**: Comprehensive error handling with custom error classes
-- **Health Checks**: Detailed health monitoring endpoints
-- **Graceful Shutdown**: Proper cleanup of resources on termination
-- **Security**: Built-in security headers and CORS support
-- **Modular Architecture**: Clean separation of concerns
+- **Node.js** + **Express.js 5**
+- **TypeScript**
+- **PostgreSQL** (pg 드라이버)
+- **Socket.IO** (실시간 통신)
+- **TypeORM** (ORM은 사용하지 않고 raw SQL 쿼리)
+- **JWT** (인증)
+- **Cloudinary** (이미지 업로드)
 
-## 📁 Project Structure
+## 폴더 구조
 
 ```
 socialspace-be/
-├── src/
-│   ├── config/
-│   │   ├── database.ts      # Database configuration and management
-│   │   └── environment.ts   # Environment variables and validation
-│   ├── middleware/
-│   │   ├── index.ts         # Common middleware exports
-│   │   └── errorHandler.ts  # Error handling middleware
-│   ├── routes/
-│   │   ├── api.ts          # API routes
-│   │   └── health.ts       # Health check routes
-│   ├── types/
-│   │   └── index.ts        # TypeScript type definitions
-│   ├── utils/
-│   │   └── logger.ts       # Structured logging utility
-│   └── app.ts              # Express app configuration
-├── server.ts               # Main server entry point
-├── package.json
-├── tsconfig.json
-└── README.md
+├── config/              # 설정 파일
+│   ├── database.ts      # DB 연결 설정
+│   └── cloudinary.ts    # 이미지 업로드 설정
+├── controllers/         # 비즈니스 로직
+│   ├── authController.ts
+│   ├── postsController.ts
+│   ├── chatController.ts
+│   └── ...
+├── models/             # 데이터 모델 (타입 정의)
+│   ├── User.ts
+│   ├── Post.ts
+│   ├── Chat.ts
+│   └── ...
+├── routes/             # API 라우트
+│   ├── auth.ts
+│   ├── posts.ts
+│   ├── chat.ts
+│   └── ...
+├── middleware/        # 미들웨어
+│   ├── auth.ts        # JWT 인증
+│   ├── blockCheck.ts  # 차단 확인
+│   └── errorHandler.ts
+├── socket/            # Socket.IO 이벤트 핸들러
+│   └── index.ts
+├── utils/             # 유틸리티 함수
+│   ├── jwt.ts
+│   └── logger.ts
+└── server.ts          # 서버 진입점
 ```
 
-## 🛠️ Tech Stack
+## 주요 기능
 
-- **Runtime**: Node.js
-- **Language**: TypeScript
-- **Framework**: Express.js
-- **Database**: PostgreSQL (with pg driver)
-- **Environment Management**: dotenv
+- 사용자 인증 (JWT, Google OAuth)
+- 게시물 CRUD (이미지 업로드 포함)
+- 댓글 및 대댓글
+- 팔로우/언팔로우, 친한친구 관리
+- 실시간 채팅 (Socket.IO)
+- 알림 시스템
+- 차단 기능
+- 게시물 추천 알고리즘
 
-## 📋 Prerequisites
+## 개발 방식
 
-- Node.js (v16 or higher)
-- PostgreSQL database (local or cloud)
-- npm or yarn
+**API 설계**: RESTful API로 70개 이상의 엔드포인트를 구현했습니다. 각 기능별로 라우터를 분리해서 관리했습니다 (auth, posts, comments, chat, follow 등). 모든 응답은 일관된 포맷(success, data, message)으로 통일했습니다.
 
-## ⚙️ Installation
+**데이터베이스**: PostgreSQL을 사용했고, TypeORM 대신 raw SQL 쿼리를 직접 작성했습니다. 트랜잭션 처리나 복잡한 JOIN 쿼리를 직접 제어할 수 있어서 성능 최적화가 수월했습니다.
 
-1. Clone the repository:
+**실시간 통신**: Socket.IO로 실시간 채팅을 구현했습니다. 사용자별 소켓 매핑(Map 자료구조)을 관리하고, 룸 기반 멀티캐스팅으로 메시지를 전송합니다. 메시지 읽음 상태, 타이핑 상태 같은 기능도 이벤트 핸들러로 처리했습니다.
 
-```bash
-git clone <repository-url>
-cd socialspace-be
+**인증 미들웨어**: JWT 토큰 기반 인증을 미들웨어로 구현했습니다. 차단된 사용자 필터링도 미들웨어에서 처리해서 API 핸들러는 비즈니스 로직에만 집중할 수 있게 했습니다.
+
+**에러 처리**: 통합 에러 핸들러 미들웨어를 만들어서 모든 에러를 일관되게 처리합니다. 개발 환경과 프로덕션 환경에서 다르게 에러를 노출하도록 설정했습니다.
+
 ```
 
-2. Install dependencies:
+## 실행 방법
 
 ```bash
 npm install
-```
-
-3. Set up environment variables:
-   Create a `.env` file in the project root:
-
-```env
-DATABASE_URL=postgresql://username:password@host:port/database
-NODE_ENV=development
-PORT=3000
-```
-
-4. Start the development server:
-
-```bash
 npm run dev
 ```
 
-## 🔧 Available Scripts
-
-- `npm run dev` - Start development server with hot reload
-- `npm run build` - Build the TypeScript project
-- `npm start` - Start production server
-- `npm test` - Run tests (not implemented yet)
-
-## 🌐 API Endpoints
-
-### Health Checks
-
-- `GET /` - API welcome message
-- `GET /health` - Comprehensive health check
-- `GET /health/db` - Database-specific health check
-
-### API Routes
-
-- `GET /api/status` - API status and information
-- `GET /api/test-db` - Database connectivity test
-- `POST /api/example` - Example endpoint with validation
-
-## 📊 API Response Format
-
-All API responses follow a consistent structure:
-
-```typescript
-{
-  success: boolean;
-  data?: any;
-  error?: string;
-  message?: string;
-  timestamp: string;
-}
-```
-
-## 🔒 Security Features
-
-- Security headers (XSS, CSRF protection)
-- CORS configuration
-- Request size limiting
-- Structured error handling (no sensitive data leakage)
-
-## 📝 Logging
-
-The application uses a structured logging system that includes:
-
-- Timestamp
-- Log level (INFO, ERROR, WARN, DEBUG)
-- Request metadata (method, URL, IP, user agent)
-- Performance metrics
-- Error stack traces
-
-## 🚦 Environment Configuration
-
-The application validates required environment variables on startup:
-
-- `DATABASE_URL` (required): PostgreSQL connection string
-- `NODE_ENV` (optional): Environment mode (development/production)
-- `PORT` (optional): Server port (default: 3000)
-
-## 🔄 Database Connection
-
-- Connection pooling with pg
-- SSL support for cloud databases
-- Automatic reconnection handling
-- Health check monitoring
-
-## 🛡️ Error Handling
-
-- Custom `AppError` class for operational errors
-- Async error handling wrapper
-- Structured error responses
-- Development vs production error details
-
-## 🏥 Health Monitoring
-
-The health endpoints provide detailed system information:
-
-- Database connectivity status
-- Application uptime
-- Response time metrics
-- Version information
-
-## 🚀 Deployment
-
-For production deployment:
-
-1. Set environment variables:
-
-```env
-NODE_ENV=production
-DATABASE_URL=<production-database-url>
-PORT=<production-port>
-```
-
-2. Build and start:
+프로덕션 빌드:
 
 ```bash
 npm run build
 npm start
 ```
 
-## 🤝 Contributing
+## API 응답 형식
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests (when available)
-5. Submit a pull request
+모든 API 응답은 다음과 같은 형식을 따릅니다:
 
-## 📄 License
+```typescript
+{
+  success: boolean;
+  data?: any;
+  message?: string;
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  }
+}
+```
 
-This project is licensed under the ISC License.
+## 주요 엔드포인트
+
+- `POST /auth/login` - 로그인
+- `POST /auth/signup` - 회원가입
+- `GET /posts` - 게시물 목록 조회
+- `POST /posts` - 게시물 작성
+- `GET /chat/rooms` - 채팅방 목록
+- `POST /follow/:userId` - 팔로우
+- `GET /notifications` - 알림 목록
